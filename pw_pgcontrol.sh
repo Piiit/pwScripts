@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPTNAME=${0##*/}
+
 ### RESOLVING FULL ABSOLUTE SCRIPT PATH
 # Source: http://stackoverflow.com/questions/59895/can-a-bash-script-tell-what-directory-its-stored-in
 # Resolve this script's location to get the include path for helper scripts
@@ -22,8 +24,8 @@ INC_DIR="$INC_DIR/includes"
 source "$INC_DIR/read_ini.sh"
 
 function showError {
-    echo "$0: $1"
-	echo "$0 --help gives more information."
+    echo "$SCRIPTNAME: $1"
+	echo "$SCRIPTNAME --help gives more information."
 }
 
 INIFILE=".pw_pgcontrol.ini"
@@ -50,10 +52,10 @@ function showConfig {
 
 
 function showHelp {
-	echo "USAGE: $0 [OPTIONS]"
+	echo "USAGE: $SCRIPTNAME [OPTIONS]"
 	echo "Script to control a PostgreSQL instance with the following configuration:"
     showConfig
-	echo "  > Note: Change configurations inside your PostgreSQL directory in the file .pw_pgcontrol.ini"
+	echo "  > Note: Change configurations in $INIFILE inside your PostgreSQL directory."
 	echo
 	echo "OPTIONS:"
 	echo "  help, -h, --help      Show this help message"
@@ -63,10 +65,12 @@ function showHelp {
 	echo "  restart               Restart the PostgreSQL Server"
 	echo "  status                Show the status of the PostgreSQL Server"
 	echo "  createdb <DBNAME>     Create a database with name <DBNAME>"
-	echo "  initdb				  Create a new PostgreSQL database cluster in <DATADIR>"
+	echo "  initdb                Create a new PostgreSQL database cluster in <DATADIR>"
 	echo "                        Change <DATADIR> in the ini-file"
 	echo "  load <DBNAME> <FILE>  Load <FILE> with SQL data into the database <DBNAME>"
     echo "  psql <DBNAME>         Start psql for database <DBNAME>  with current configuration"
+    echo "  csvout <DBNAME> <FILE>"
+    echo "                        Same as 'load', but writes results as CSV to stdout"
     echo "  patchcreate <ORIGPATH> <NEWPATH> <PATCHFILE>"
     echo "                        Create a patch by comparing two Postgres directories with diff"
     echo "                        See man diff for further details."
@@ -113,6 +117,10 @@ case $1 in
     psql)
         checkArguments $# 2 "$1: database name missing." 
         $BINDIR/psql -p $PORT -h localhost -d $2
+    ;;
+    csvout)
+    	query=$(sed 's/;//' $3 | grep -v ^SET ) 
+    	$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV HEADER DELIMITER ';'"
     ;;
     initdb)
     	$BINDIR/initdb -D $DATADIR
