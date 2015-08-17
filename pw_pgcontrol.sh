@@ -73,7 +73,7 @@ function showHelp {
     echo "                        Same as 'load', but writes results as CSV to stdout"
     echo "  csvload <DBNAME> <TABLENAME> <FILE>"
     echo "                        Load a csv-file and store contents in table <TABLENAME>"
-    echo "  test <DBNAME> <TABLENAME> <FILE>"
+    echo "  comparetables <DBNAME> <TABLENAME> <FILE>"
     echo "                        Execute the query in <FILE>, and compare results with <TABLENAME>"
     echo "  patchcreate <ORIGPATH> <NEWPATH> <PATCHFILE>"
     echo "                        Create a patch by comparing two Postgres directories with diff"
@@ -84,7 +84,7 @@ function showHelp {
 }
 
 function checkArguments {
-	if test $1 -ne $2; then
+	if test $1 -lt $2; then
         showError "$3"
 		exit 1
 	fi
@@ -113,13 +113,23 @@ case $1 in
 	;;
 	load)
 		checkArguments $# 3 "$1: no database name and/or data-file specified!"
-		$BINDIR/psql -p $PORT -h localhost -d $2 -f $3		
+		$BINDIR/psql -p $PORT -h localhost -d $2 -f $3 		
+	;;
+	test)
+		# Resource: http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
+		
+		checkArguments $# 3 "$1: no database name and/or test-file specified!"
+		echo "Test '$3' starts now..." >&2
+		echo "NB: We stop on first error and use a single transaction mode" >&2
+		echo >&2
+		PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $3 		
 	;;
     debug)
         $BINDIR/psql -a -e -p $PORT -h localhost -d $2 -f $3 		
     ;;
     psql)
-        checkArguments $# 2 "$1: database name missing." 
+    	# TODO Build a better checkArguments here... pass additional parameters if any.
+        checkArguments $# 2 "$1: database name missing or too many arguments given." 
         $BINDIR/psql -p $PORT -h localhost -d $2
     ;;
     csvout)
@@ -131,7 +141,7 @@ case $1 in
     	file=$(readlink -m $4)
     	$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY $3 FROM '$file' DELIMITER ';' CSV HEADER"
     ;;
-    test)
+    comparetables)
     	# http://stackoverflow.com/questions/4602083/sql-compare-data-from-two-tables
     	query=$(sed 's/;//' $4 | grep -v ^SET ) 
     	$BINDIR/psql -p $PORT -h localhost -d $2 -c "SELECT * FROM $3 UNION SELECT * FROM ($query) XXXXX EXCEPT SELECT * FROM $3 INTERSECT SELECT * FROM ($query) YYYYY"
