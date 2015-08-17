@@ -10,22 +10,22 @@ function showHelp {
 	echo "        where <something> must be the same string."
 	echo
 	echo "OPTIONS:"
-	echo "  -h, --help          	Show this help message"
-	echo "  -v, --verbose       	Prints additional information, if a test fails"
-	echo "  -i, --ignore <pattern>	Ignore lines with a certain <pattern>"
+	echo "  -h, --help              Show this help message"
+	echo "  -v, --verbose           Prints additional information, if a test fails"
+	echo "  -i, --ignore <pattern>  Ignore lines with a certain <pattern>"
+	echo "  -c, --command <command> Executes a command and compares its result with a given expected result file"
 }
 
-# NOTE: This requires GNU getopt.  On Mac OS X and FreeBSD, you have to install this
-# separately; see below.
-TEMP=$(getopt -o hvic: --long help,verbose,ignore,command:,debugfile: -n $SCRIPTNAME -- "$@")
+# Each short option character in shortopts may be followed by one colon to indicate it has a required 
+# argument, and by two colons to indicate it has an optional argument.
+TEMP=$(getopt -o hvi:c: --long help,verbose,ignore:,command: -n $SCRIPTNAME -- "$@")
 
-if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+if [ $? != 0 ] ; then echo "Parameter parsing failed (getopt). Terminating..." >&2 ; exit 1 ; fi
 
 # Note the quotes around `$TEMP': they are essential!
 eval set -- "$TEMP"
 
 VERBOSE=false
-IGNORE=false
 DEBUGFILE=
 CMD=
 
@@ -40,9 +40,8 @@ while true; do
     	shift 
     ;;
     -i | --ignore ) 
-    	IGNORE=true
-		IGNORESTRING="$2" 
-		shift 2 
+		IGNORESTRING="$2"
+		shift 2
 	;;
 	-c | --command )
 		CMD="$2"
@@ -74,8 +73,9 @@ TESTCOUNT=0
 function diffCmd {
 
 	DIFFCMD="diff -Bbc --suppress-common-lines "
-	if $IGNORE; then
-		DIFFCMD=$DIFFCMD"-I $IGNORESTRING "
+	if test -n "$IGNORESTRING"; then
+		outVerbose "Ignoring '$IGNORESTRING' while comparing..."
+		DIFFCMD=$DIFFCMD" -I"$IGNORESTRING
 	fi
 	
 	if test -n "$CMD"; then
@@ -95,14 +95,8 @@ do
 			outVerbose "============================================================================="
 			outVerbose "TESTING: $ARG"
 			
-			if $IGNORE; then
-				outVerbose "Ignoring '$IGNORESTRING' while comparing..."
-				diff -Bby --suppress-common-lines -I $IGNORESTRING ${ARG%.*}_expected.txt "$ARG" >&2
-                PASSED=$?
-			else
-				diffCmd ${ARG%.*}_expected.txt "$ARG"  >&2
-                PASSED=$?
-			fi
+			diffCmd ${ARG%.*}_expected.txt "$ARG"  >&2
+            PASSED=$?
 			
 			if [ $PASSED -eq 0 ]; then
 				echo "TEST SUCCEEDED: $ARG"
