@@ -119,9 +119,9 @@ case $1 in
 		# Resource: http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
 		
 		checkArguments $# 3 "$1: no database name and/or test-file specified!"
-		echo "Test '$3' starts now..." >&2
-		echo "NB: We stop on first error and use a single transaction mode" >&2
-		echo >&2
+		# echo "Test '$3' starts now..." >&2
+		# echo "NB: We stop on first error and use a single transaction mode" >&2
+		# echo >&2
 		PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $3 		
 	;;
     debug)

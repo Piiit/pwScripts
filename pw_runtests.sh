@@ -79,20 +79,29 @@ function diffCmd {
 	fi
 	
 	if test -n "$CMD"; then
-		$CMD $2 | $DIFFCMD $1 -
-		return $?
+		if $VERBOSE; then
+			$CMD $2 | $DIFFCMD $1 - 
+			return $?
+		else
+			$CMD $2 2>/dev/null | $DIFFCMD $1 -
+			return $?
+		fi
 	fi
 	
 	$DIFFCMD $1 $2
 	return $?
 }
 
+echo "Starting tests..."
+echo
+
 for ARG in "$@"
 do
 	if [[ ! "$ARG" =~ "_expected.txt" ]]; then 
+		outVerbose "-----------------------------------------------------------------------------"
 		if [ -f "${ARG%.*}_expected.txt" ]; then 
             let TESTCOUNT=TESTCOUNT+1
-			outVerbose "============================================================================="
+			
 			outVerbose "TESTING: $ARG"
 			
 			diffCmd ${ARG%.*}_expected.txt "$ARG"  >&2
@@ -104,7 +113,6 @@ do
 				echo "TEST FAILED   : $ARG"
 				let ERRCOUNT=ERRCOUNT+1
 			fi
-			outVerbose "============================================================================="
 		else
 			let SKIPCOUNT=SKIPCOUNT+1
 			outVerbose "TEST SKIPPED: '$ARG' (no EXPECTED RESULT file)"
@@ -118,7 +126,16 @@ if test $TESTCOUNT -eq 0; then
   exit 0
 fi
 
-echo ">>> DONE: $TESTCOUNT tests, $ERRCOUNT failures, $SKIPCOUNT skipped."
-test $ERRCOUNT -eq 0 && echo ">>> RESULT: ALL TESTS PASSED!" || echo ">>> RESULT: ERRORS REPORTED!"
+outVerbose "-----------------------------------------------------------------------------"
+
+echo
+echo "...done!"
+echo
+test $ERRCOUNT -eq 0 && printf "ALL TESTS PASSED!\n\n" || printf "ERRORS REPORTED!\n\n"
+echo "Details:"
+printf "  $TESTCOUNT tests executed\n"
+printf "  $ERRCOUNT failures\n"
+printf "  $SKIPCOUNT skipped\n"
+echo
 
 exit 0
