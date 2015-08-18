@@ -171,4 +171,4 @@ case $1 in
 	;;
 esac
 
-exit 0
+exit $?

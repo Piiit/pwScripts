@@ -67,8 +67,10 @@ function outVerbose {
 }
 
 ERRCOUNT=0
-SKIPCOUNT=0
 TESTCOUNT=0
+
+TMPFILE1="/tmp/$SCRIPTNAME-stdout.$$.tmp"
+TMPFILE2="/tmp/$SCRIPTNAME-stderr.$$.tmp"
 
 function diffCmd {
 
@@ -79,13 +81,16 @@ function diffCmd {
 	fi
 	
 	if test -n "$CMD"; then
-		if $VERBOSE; then
-			$CMD $2 | $DIFFCMD $1 - 
-			return $?
-		else
-			$CMD $2 2>/dev/null | $DIFFCMD $1 -
-			return $?
+		$CMD $2 > $TMPFILE1 2> $TMPFILE2
+		OUT=$?
+		if test $OUT -ne 0; then
+			echo "ERROR: UNABLE TO EXECUTE TESTS..."
+			printf "\tCommand '$CMD' failed with error-code '$OUT' and stderr output:\n"
+			cat $TMPFILE2
+			exit 1
 		fi
+		cat $TMPFILE1 | $DIFFCMD $1 - 
+		return $?
 	fi
 	
 	$DIFFCMD $1 $2
@@ -100,7 +105,7 @@ do
 	if [[ ! "$ARG" =~ "_expected.txt" ]]; then 
 		outVerbose "-----------------------------------------------------------------------------"
 		if [ -f "${ARG%.*}_expected.txt" ]; then 
-            let TESTCOUNT=TESTCOUNT+1
+            let TESTCOUNT+=1
 			
 			outVerbose "TESTING: $ARG"
 			
@@ -111,10 +116,9 @@ do
 				echo "TEST SUCCEEDED: $ARG"
 			else
 				echo "TEST FAILED   : $ARG"
-				let ERRCOUNT=ERRCOUNT+1
+				let ERRCOUNT+=1
 			fi
 		else
-			let SKIPCOUNT=SKIPCOUNT+1
 			outVerbose "TEST SKIPPED: '$ARG' (no EXPECTED RESULT file)"
 		fi
 	fi
@@ -134,8 +138,8 @@ echo
 test $ERRCOUNT -eq 0 && printf "ALL TESTS PASSED!\n\n" || printf "ERRORS REPORTED!\n\n"
 echo "Details:"
 printf "  $TESTCOUNT tests executed\n"
-printf "  $ERRCOUNT failures\n"
-printf "  $SKIPCOUNT skipped\n"
+printf "  $ERRCOUNT tests failed\n"
+printf "  $[TESTCOUNT-ERRCOUNT] tests passed\n"
 echo
 
 exit 0
