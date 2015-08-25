@@ -136,6 +136,10 @@ case $1 in
     	query=$(sed 's/;//' $3 | grep -v ^SET ) 
     	$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV HEADER DELIMITER ';'"
     ;;
+    csvout2)
+    	query=$(sed 's/;//' $3 | grep -v ^SET ) 
+    	$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV DELIMITER ','"
+    ;;
     csvload)
     	# To fetch the absolute path with filename
     	file=$(readlink -m $4)
@@ -148,6 +152,13 @@ case $1 in
     ;;
     initdb)
     	$BINDIR/initdb -D $DATADIR
+    ;;
+    testinitdb)
+	    TMPDIR="/tmp/$SCRIPTNAME-initdb-test.$$"
+ 		$BINDIR/initdb -D $TMPDIR
+ 		RES=$?
+ 		rm -rf $TMPDIR
+ 		exit $RES
     ;;
     patchcreate)
     	checkArguments $# 4 "$1: diff requires <origpath> <newpath>, and <patch-file> to create a patch with name <patch-file>."

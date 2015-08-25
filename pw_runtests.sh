@@ -14,17 +14,19 @@ function showHelp {
 	echo "  -v, --verbose           Prints additional information, if a test fails"
 	echo "  -i, --ignore <pattern>  Ignore lines with a certain <pattern>"
 	echo "  -c, --command <command> Executes a command and compares its result with a given expected result file"
+	echo "  -s, --silent            Prints only minimal info, i.e., pass or fail"
 }
 
 # Each short option character in shortopts may be followed by one colon to indicate it has a required 
 # argument, and by two colons to indicate it has an optional argument.
-TEMP=$(getopt -o hvi:c: --long help,verbose,ignore:,command: -n $SCRIPTNAME -- "$@")
+TEMP=$(getopt -o hvsi:c: --long help,verbose,silent,ignore:,command: -n $SCRIPTNAME -- "$@")
 
-if [ $? != 0 ] ; then echo "Parameter parsing failed (getopt). Terminating..." >&2 ; exit 1 ; fi
+if [ $? != 0 ] ; then echo "$SCRIPTNAME: Parameter parsing failed (getopt). Terminating..." >&2 ; exit 1 ; fi
 
 # Note the quotes around `$TEMP': they are essential!
 eval set -- "$TEMP"
 
+SILENT=false
 VERBOSE=false
 DEBUGFILE=
 CMD=
@@ -36,6 +38,7 @@ while true; do
     	exit 0 
     ;;
     -v | --verbose ) 
+    	$SILENT && { echo "$SCRIPTNAME: Verbose and silent can not be given at the same time! Terminating..." >&2; exit 1; }
     	VERBOSE=true
     	shift 
     ;;
@@ -46,6 +49,11 @@ while true; do
 	-c | --command )
 		CMD="$2"
 		shift 2
+	;;
+	-s | --silent )
+		$VERBOSE && { echo "$SCRIPTNAME: Verbose and silent can not be given at the same time! Terminating..." >&2; exit 1; }
+		SILENT=true
+		shift
 	;;
     --debugfile ) 
     	DEBUGFILE="$2"
@@ -80,6 +88,8 @@ function diffCmd {
 		DIFFCMD=$DIFFCMD" -I"$IGNORESTRING
 	fi
 	
+	DIFFOUT=$($SILENT && echo /dev/null || echo /dev/stdout)
+	
 	if test -n "$CMD"; then
 		$CMD $2 > $TMPFILE1 2> $TMPFILE2
 		OUT=$?
@@ -89,16 +99,19 @@ function diffCmd {
 			cat $TMPFILE2
 			exit 1
 		fi
-		cat $TMPFILE1 | $DIFFCMD $1 - 
+		
+		cat $TMPFILE1 | $DIFFCMD $1 - > $DIFFOUT
 		return $?
 	fi
 	
-	$DIFFCMD $1 $2
+	$DIFFCMD $1 $2 > $DIFFOUT
 	return $?
 }
 
-echo "Starting tests..."
-echo
+$SILENT || {
+	echo "Starting tests..."
+	echo
+}
 
 for ARG in "$@"
 do
@@ -132,14 +145,16 @@ fi
 
 outVerbose "-----------------------------------------------------------------------------"
 
-echo
-echo "...done!"
-echo
-test $ERRCOUNT -eq 0 && printf "ALL TESTS PASSED!\n\n" || printf "ERRORS REPORTED!\n\n"
-echo "Details:"
-printf "  $TESTCOUNT tests executed\n"
-printf "  $ERRCOUNT tests failed\n"
-printf "  $[TESTCOUNT-ERRCOUNT] tests passed\n"
-echo
+$SILENT || {
+	echo
+	echo "...done!"
+	echo
+	test $ERRCOUNT -eq 0 && printf "ALL TESTS PASSED!\n\n" || printf "ERRORS REPORTED!\n\n"
+	echo "Details:"
+	printf "  $TESTCOUNT tests executed\n"
+	printf "  $ERRCOUNT tests failed\n"
+	printf "  $[TESTCOUNT-ERRCOUNT] tests passed\n"
+	echo
+}
 
 exit 0
