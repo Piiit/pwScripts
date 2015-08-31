@@ -1,47 +1,16 @@
 #!/bin/bash
-
 SCRIPTNAME=${0##*/}
 
-### RESOLVING FULL ABSOLUTE SCRIPT PATH
-# Source: http://stackoverflow.com/questions/59895/can-a-bash-script-tell-what-directory-its-stored-in
-# Resolve this script's location to get the include path for helper scripts
-SOURCE="${BASH_SOURCE[0]}"
+# Fetch environment information about the PostgreSQL installation
+. .pw_pgcontrol.ini
 
-# resolve $SOURCE until the file is no longer a symlink
-while [ -h "$SOURCE" ]; do
-  INC_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
-  SOURCE="$(readlink "$SOURCE")"
-  
-  # if $SOURCE was a relative symlink, we need to resolve it 
-  # relative to the path where the symlink file was located
-  [[ $SOURCE != /* ]] && SOURCE="$INC_DIR/$SOURCE" 
-done
-INC_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
-### RESOLVING FULL ABSOLUTE SCRIPT PATH
-
-### INCLUDES
-INC_DIR="$INC_DIR/includes"
-source "$INC_DIR/read_ini.sh"
+# Binary dir default setting, if not set inside the INI-file...
+test -z $BINDIR && BINDIR="./server/bin"
 
 function showError {
     echo "$SCRIPTNAME: $1"
 	echo "$SCRIPTNAME --help gives more information."
 }
-
-INIFILE=".pw_pgcontrol.ini"
-
-# TODO Read ini only if needed!
-# Read ini file
-read_ini "$INIFILE" || (showError "Unable to read ini file $INIFILE."; exit 1)
-
-PORT=$INI__PORT
-LOGFILE=$INI__LOGFILE
-DATADIR=$INI__DATADIR
-BINDIR=$INI__BIN
-
-if test -z $BINDIR; then
-  BINDIR="./server/bin"
-fi
 
 function showConfig {
 	echo "  Port: $PORT"
@@ -49,7 +18,6 @@ function showConfig {
 	echo "  Data: $DATADIR"
     echo "  Bin : $BINDIR"
 }
-
 
 function showHelp {
 	echo "USAGE: $SCRIPTNAME [OPTIONS]"
@@ -67,6 +35,9 @@ function showHelp {
 	echo "  createdb <DBNAME>     Create a database with name <DBNAME>"
 	echo "  initdb                Create a new PostgreSQL database cluster in <DATADIR>"
 	echo "                        Change <DATADIR> in the ini-file"
+	echo "  test <DBNAME> <FILE>  Test <FILE> with database <DBNAME> (batch mode; single transaction; stop on error)"
+	echo "  testall <DBNAME> <FILE>"
+	echo "                        Test <FILE> with database <DBNAME> (batch mode; multiple transactions; do not stop on error)"
 	echo "  load <DBNAME> <FILE>  Load <FILE> with SQL data into the database <DBNAME>"
     echo "  psql <DBNAME>         Start psql for database <DBNAME>  with current configuration"
     echo "  csvout <DBNAME> <FILE>"
@@ -89,8 +60,6 @@ function checkArguments {
 		exit 1
 	fi
 }
-
-
 
 case $1 in
 	help|-h|--help)
@@ -124,6 +93,10 @@ case $1 in
 		# echo >&2
 		PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $3 		
 	;;
+	testall)
+		checkArguments $# 3 "$1: no database name and/or test-file specified!"
+		PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $3 		
+	;;
     debug)
         $BINDIR/psql -a -e -p $PORT -h localhost -d $2 -f $3 		
     ;;
@@ -148,7 +121,7 @@ case $1 in
     comparetables)
     	# http://stackoverflow.com/questions/4602083/sql-compare-data-from-two-tables
     	query=$(sed 's/;//' $4 | grep -v ^SET ) 
-    	$BINDIR/psql -p $PORT -h localhost -d $2 -c "SELECT * FROM $3 UNION SELECT * FROM ($query) XXXXX EXCEPT SELECT * FROM $3 INTERSECT SELECT * FROM ($query) YYYYY"
+    	$BINDIR/psql -p $PORT -h localhost -d $2 -c "SELECT * FROM $3 UNION SELECT * FROM ($query) XXXXX EXCEPT ALL SELECT * FROM $3 INTERSECT SELECT * FROM ($query) YYYYY"
     ;;
     initdb)
     	$BINDIR/initdb -D $DATADIR
@@ -177,8 +150,8 @@ case $1 in
     	patch -p$2 < $3
     ;;
 	*)
-		checkArguments $# 1 "No OPTION specified" 
-        checkArguments $# -1 "OPTION '$1' does not exist." 
+        showError "OPTION '$1' does not exist." 
+        exit 1
 	;;
 esac
 
