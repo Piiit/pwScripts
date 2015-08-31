@@ -1,12 +1,6 @@
 #!/bin/bash
 SCRIPTNAME=${0##*/}
 
-# Fetch environment information about the PostgreSQL installation
-. .pw_pgcontrol.ini
-
-# Binary dir default setting, if not set inside the INI-file...
-test -z $BINDIR && BINDIR="./server/bin"
-
 function showError {
     echo "$SCRIPTNAME: $1"
 	echo "$SCRIPTNAME --help gives more information."
@@ -26,32 +20,27 @@ function showHelp {
 	echo "  > Note: Change configurations in $INIFILE inside your PostgreSQL directory."
 	echo
 	echo "OPTIONS:"
-	echo "  help, -h, --help      Show this help message"
-    echo "  info                  Show configuration for current directory"
-	echo "  start                 Start the PostgreSQL Server"
-	echo "  stop                  Stop the PostgreSQL Server"
-	echo "  restart               Restart the PostgreSQL Server"
-	echo "  status                Show the status of the PostgreSQL Server"
-	echo "  createdb <DBNAME>     Create a database with name <DBNAME>"
-	echo "  initdb                Create a new PostgreSQL database cluster in <DATADIR>"
-	echo "                        Change <DATADIR> in the ini-file"
-	echo "  test <DBNAME> <FILE>  Test <FILE> with database <DBNAME> (batch mode; single transaction; stop on error)"
-	echo "  testall <DBNAME> <FILE>"
-	echo "                        Test <FILE> with database <DBNAME> (batch mode; multiple transactions; do not stop on error)"
-	echo "  load <DBNAME> <FILE>  Load <FILE> with SQL data into the database <DBNAME>"
-    echo "  psql <DBNAME>         Start psql for database <DBNAME>  with current configuration"
-    echo "  csvout <DBNAME> <FILE>"
-    echo "                        Same as 'load', but writes results as CSV to stdout"
-    echo "  csvload <DBNAME> <TABLENAME> <FILE>"
-    echo "                        Load a csv-file and store contents in table <TABLENAME>"
-    echo "  comparetables <DBNAME> <TABLENAME> <FILE>"
-    echo "                        Execute the query in <FILE>, and compare results with <TABLENAME>"
-    echo "  patchcreate <ORIGPATH> <NEWPATH> <PATCHFILE>"
-    echo "                        Create a patch by comparing two Postgres directories with diff"
-    echo "                        See man diff for further details."
-    echo "  patchapply <P-LEVEL> <PATCHFILE>"
-    echo "                        Apply a patch to a Postgres source code directory"
-    echo "                        See man patch for further details."
+	echo "  help, -h, --help            |Show this help message"
+    echo "  info                        |Show configuration for current directory"
+	echo "  start                       |Start the PostgreSQL Server"
+	echo "  stop                        |Stop the PostgreSQL Server"
+	echo "  restart                     |Restart the PostgreSQL Server"
+	echo "  status                      |Show the status of the PostgreSQL Server"
+	echo "  createdb DB                 |Create a database with name DB"
+	echo "  initdb                      |Create a new PostgreSQL database cluster in \$DATADIR"
+	echo "                              |Change \$DATADIR in the ini-file"
+	echo "  test DB FILE                |Test FILE with database DB (batch mode; single transaction; stop on error)"
+	echo "  testall DB FILE             |Test FILE with database DB (batch mode; multiple transactions; do not stop on error)"
+	echo "  load DB FILE                |Load FILE with SQL data into the database DB"
+    echo "  psql DB                     |Start psql for database DB  with current configuration"
+    echo "  csvout DB FILE              |Same as 'load', but writes results as CSV to stdout"
+    echo "  csvload DB TABLE FILE       |Load a csv-file and store contents in table TABLE"
+    echo "  comparetables DB TABLE FILE |Execute the query in FILE, and compare results with TABLE"
+    echo "  patchcreate ORIGPATH NEWPATH PATCHFILE"
+    echo "                              |Create a patch by comparing two Postgres directories with diff"
+    echo "                              |See man diff for further details."
+    echo "  patchapply PLEVEL PATCHFILE |Apply a patch to a Postgres source code directory"
+    echo "                              |See man patch for further details."
 }
 
 function checkArguments {
@@ -60,6 +49,17 @@ function checkArguments {
 		exit 1
 	fi
 }
+
+##
+## MAIN
+## 
+
+# Fetch environment information about the PostgreSQL installation
+INI=.pw_pgcontrol.ini
+test -f $INI && . $INI || { showError "No evironment INI file found. Have you specified PostgreSQL configs in $INI?"; exit 1; }
+
+# Binary dir default setting, if not set inside the INI-file...
+test -z $BINDIR && BINDIR="./server/bin"
 
 case $1 in
 	help|-h|--help)
