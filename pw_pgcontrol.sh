@@ -95,7 +95,7 @@ case $1 in
 	;;
 	testall)
 		checkArguments $# 3 "$1: no database name and/or test-file specified!"
-		PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $3 		
+		PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $3 2>&1		
 	;;
     debug)
         $BINDIR/psql -a -e -p $PORT -h localhost -d $2 -f $3 		
