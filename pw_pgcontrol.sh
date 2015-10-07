@@ -8,15 +8,17 @@ function showError {
 }
 
 # Fetch environment information about the PostgreSQL installation
-function checkINI {
+function loadINI {
 	test -f $INI && . $INI || { 
 		showError "No evironment INI file found. Have you specified PostgreSQL configs in $INI?"
 		exit 1
 	}
+	
+	# Binary dir default setting, if not set inside the INI-file...
+	test -z $BINDIR && BINDIR="./server/bin"
 }
 
 function showConfig {
-	checkINI
 	echo "  Port: $PORT"
 	echo "  Log : $LOGFILE"
 	echo "  Data: $DATADIR"
@@ -73,9 +75,6 @@ function checkArguments {
 ## 
 
 
-# Binary dir default setting, if not set inside the INI-file...
-test -z $BINDIR && BINDIR="./server/bin"
-
 # Each short option character in shortopts may be followed by one colon to indicate it has a required 
 # argument, and by two colons to indicate it has an optional argument.
 TEMP=$(getopt -o hisrtc:p: -l help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply: -n $SCRIPTNAME -- "$@")
@@ -84,6 +83,8 @@ if [ $? != 0 ] ; then echo "$SCRIPTNAME: Parameter parsing failed (getopt). Term
 
 # Note the quotes around `$TEMP': they are essential!
 eval set -- "$TEMP"
+
+loadINI
 
 CMD=
 while true; do
@@ -111,17 +112,17 @@ while true; do
 			CMD=stop
 			break
 		;;
-		createdb)
+		-c | --createdb)
 			checkArguments $# 2 "$1: no database name specified!"
 			$BINDIR/createdb -p $PORT -h localhost $2
 		    shift 2
 		;;
-		load)
+		--load)
 			checkArguments $# 3 "$1: no database name and/or data-file specified!"
 			$BINDIR/psql -p $PORT -h localhost -d $2 -f $3 		
 			shift 2
 		;;
-		test)
+		--test)
 			# Resource: http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
 		
 			checkArguments $# 3 "$1: no database name and/or test-file specified!"
@@ -131,55 +132,55 @@ while true; do
 			PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $3 	
 			exit $?
 		;;
-		testall)
+		--testall)
 			checkArguments $# 3 "$1: no database name and/or test-file specified!"
 			PGOPTIONS='--client-min-messages=warning' $BINDIR/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $3 2>&1		
 			exit $?
 		;;
-		debug)
+		--debug)
 		    $BINDIR/psql -a -e -p $PORT -h localhost -d $2 -f $3 
 		    exit $?		
 		;;
-		psql)
+		-p | --psql)
 			# TODO Build a better checkArguments here... pass additional parameters if any.
 		    checkArguments $# 2 "$1: database name missing or too many arguments given." 
 		    $BINDIR/psql -p $PORT -h localhost -d $2
 		    exit $?
 		;;
-		csvout)
+		--csvout)
 			query=$(sed 's/;//' $3 | grep -v ^SET ) 
 			$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV HEADER DELIMITER ';'"
 			exit $?
 		;;
-		csvout2)
+		--csvout2)
 			query=$(sed 's/;//' $3 | grep -v ^SET ) 
 			$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV DELIMITER ','"
 			exit $?
 		;;
-		csvload)
+		--csvload)
 			# To fetch the absolute path with filename
 			file=$(readlink -m $4)
 			$BINDIR/psql -p $PORT -h localhost -d $2 -c "COPY $3 FROM '$file' DELIMITER ';' CSV HEADER"
 			exit $?
 		;;
-		comparetables)
+		--comparetables)
 			# http://stackoverflow.com/questions/4602083/sql-compare-data-from-two-tables
 			query=$(sed 's/;//' $4 | grep -v ^SET ) 
 			$BINDIR/psql -p $PORT -h localhost -d $2 -c "SELECT * FROM $3 UNION SELECT * FROM ($query) XXXXX EXCEPT ALL SELECT * FROM $3 INTERSECT SELECT * FROM ($query) YYYYY"
 			exit $?
 		;;
-		initdb)
+		--initdb)
 			$BINDIR/initdb -D $DATADIR
 			exit $?
 		;;
-		testinitdb)
+		--testinitdb)
 			TMPDIR="/tmp/$SCRIPTNAME-initdb-test.$$"
 	 		$BINDIR/initdb -D $TMPDIR
 	 		RES=$?
 	 		rm -rf $TMPDIR
 	 		exit $RES
 		;;
-		patchcreate)
+		--patchcreate)
 			checkArguments $# 4 "$1: diff requires <origpath> <newpath>, and <patch-file> to create a patch with name <patch-file>."
 			# -x excludes some file types that are not required for patches.
 			#    add more here, if they show up in the future.
@@ -192,7 +193,7 @@ while true; do
 			     -x '*.patch' -rupN $2 $3 > $4
 			exit $?
 		;;
-		patchapply)
+		--patchapply)
 			checkArguments $# 3 "$1: Provide a p-level and a patch-file to apply a patch to a postgres directory."
 			patch -p$2 < $3
 			exit $?
