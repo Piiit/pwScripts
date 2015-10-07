@@ -1,17 +1,26 @@
-#!/bin/sh
+#!/bin/bash
 
-LOG=/tmp/postgresql-temporal3-serverlog
+INI=.pw_pgcontrol.ini
 
-rm $LOG
-make && make install && pw_pgcontrol.sh restart || exit 1
+test -f $INI && . $INI || { 
+		showError "No evironment INI file found. Have you specified PostgreSQL configs in $INI?"
+		exit 1
+	}
+	
+rm $LOGFILE
+make && make install && pw_pgcontrol.sh --restart 
+
+if test $? -ne 0; then
+	exit $?
+fi
 
 # Wait until log file exists, i.e. server started...
-while [ ! -f $LOG ]
+while [ ! -f $LOGFILE ]
 do
-	echo -n .
+	echo -n -e "\rWaiting for log file..."
 done
 
 clear
-tail -f $LOG
+tail -f $LOGFILE
 
 exit 0
