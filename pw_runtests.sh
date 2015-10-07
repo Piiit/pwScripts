@@ -15,6 +15,7 @@ function showHelp {
 	echo "  -i, --ignore <pattern>  Ignore lines with a certain <pattern>"
 	echo "  -c, --command <command> Executes a command and compares its result with a given expected result file"
 	echo "  -s, --silent            Prints only minimal info, i.e., pass or fail"
+	echo "  -k, --keepinfo			Keep all results, and accumulate them (not implemented yet)"
 }
 
 # Each short option character in shortopts may be followed by one colon to indicate it has a required 
@@ -81,6 +82,8 @@ TMPFILE1="/tmp/$SCRIPTNAME-stdout.$$.tmp"
 TMPFILE2="/tmp/$SCRIPTNAME-stderr.$$.tmp"
 
 function diffCmd {
+
+echo $IGNORESTRING
 
 	DIFFCMD="diff -Bbc --suppress-common-lines "
 	if test -n "$IGNORESTRING"; then
