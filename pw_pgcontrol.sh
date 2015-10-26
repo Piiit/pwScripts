@@ -39,6 +39,8 @@ function showHelp {
     echo "     --patchapply PLEVEL PATCHFILE"
     echo "                       |Apply a patch to a Postgres source code directory"
     echo "                       |See man patch for further details."
+    echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
+    echo "                       |displays server's log file"
 	echo
 	echo "CONFIG:"
     showConfig
@@ -73,6 +75,22 @@ function checkArguments {
 	fi
 }
 
+
+# callPgCtl 
+# 	Call the PostgreSQL control program pg_ctl, either with or without log file 
+#   output.
+#
+# 	$1 - pg_ctl command (ex., status, start, stop) 
+#   $2 - data dir of the PostgreSQL cluster 
+#   $3 - server port
+#   $4 - log file
+function callPgCtl {
+	L=""
+	test -n $4 && L="-l $4"
+	$BIN/pg_ctl $1 -D $2 $L -o "-p $3"
+	return $?
+}
+
 ##
 ## MAIN
 ## 
@@ -80,7 +98,7 @@ function checkArguments {
 
 # Each short option character in shortopts may be followed by one colon to indicate it has a required 
 # argument, and by two colons to indicate it has an optional argument.
-TEMP=$(getopt -o hisrtc:p: -l help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply: -n $SCRIPTNAME -- "$@")
+TEMP=$(getopt -o hisrtc:p:m -l help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make -n $SCRIPTNAME -- "$@")
 
 if [ $? != 0 ] ; then showError "Parameter parsing failed (getopt). Terminating..." >&2 ; echo ; showHelp ; exit 1 ; fi
 
@@ -100,20 +118,20 @@ while true; do
 		    exit 0 
 		;;
 		-s | --start)
-			CMD=start
-			break
+			callPgCtl start $DATA $PORT $LOG
+			exit $?
 		;;
 		-r | --restart)
-			CMD=restart
-			break
+			callPgCtl restart $DATA $PORT $LOG
+			exit $?
 		;; 
 		--status)
-			CMD=status
-			break
+			callPgCtl status $DATA $PORT $LOG
+			exit $?
 		;;
 		-t | --stop)
-			CMD=stop
-			break
+			callPgCtl stop $DATA $PORT $LOG
+			exit $?
 		;;
 		-c | --createdb)
 			checkArguments $# 2 "$1: no database name specified!"
@@ -201,6 +219,34 @@ while true; do
 			patch -p$2 < $3
 			exit $?
 		;;
+		-m | --make )
+			test -z $LOG && {
+				showError "LOG not set in INI file $INI."
+				exit 1
+			}
+
+			rm -f $LOG || {
+				showError "Can not remove LOG file $LOG."
+				exit 1
+			}
+
+			make && make install && callPgCtl restart $DATA $PORT $LOG
+
+			if test $? -ne 0; then
+				exit $?
+			fi
+
+			# Wait until log file exists, i.e. server has been started...
+			while [ ! -f $LOG ]
+			do
+				echo -n -e "\rWaiting for log file..."
+			done
+
+			clear
+			tail -f $LOG
+
+			exit 0
+		;;
 		-- ) 
 			shift
 			break 
@@ -214,16 +260,7 @@ while true; do
 	esac
 done
 
-if test $CMD; then
-	checkArguments $# 1 "$1: pg_ctl: additional parameters given, but ignored" 
-	if test -z $LOG; then
-		$BIN/pg_ctl $CMD -D $DATA -o "-p $PORT"
-		exit $?
-	fi
-	
-	$BIN/pg_ctl $CMD -D $DATA -l $LOG -o "-p $PORT"
-	exit $?
-fi
+
 
 # We should not reach this line!
 showError "No parameter specified"
