@@ -50,9 +50,9 @@ function showHelp {
 }
 
 function showError {
-    echo "$SCRIPTNAME: ERROR: $1"
-	echo 
-	showHelp
+    echo "$SCRIPTNAME: ERROR: $1" >&2
+	echo >&2
+	showHelp >&2
 }
 
 # Fetch environment information about the PostgreSQL installation
@@ -95,15 +95,25 @@ function callPgCtl {
 ## MAIN
 ## 
 
+# Handling of script arguments...
+# Each short option character in shortopts may be followed by one colon to
+# indicate it has a required argument, and by two colons to indicate it has
+# an optional argument.
+ARGS=$(
+	getopt -q -o "hisrtc:p:m" \
+	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
+	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make" \
+	-n $SCRIPTNAME -- "$@"
+)
 
-# Each short option character in shortopts may be followed by one colon to indicate it has a required 
-# argument, and by two colons to indicate it has an optional argument.
-TEMP=$(getopt -o hisrtc:p:m -l help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make -n $SCRIPTNAME -- "$@")
+if [ $? != 0 ] ; then
+	showError "Wrong argument given: $@"
+	echo
+	showHelp
+	exit 1
+fi
 
-if [ $? != 0 ] ; then showError "Parameter parsing failed (getopt). Terminating..." >&2 ; echo ; showHelp ; exit 1 ; fi
-
-# Note the quotes around `$TEMP': they are essential!
-eval set -- "$TEMP"
+eval set -- "$ARGS"
 
 loadINI || showHelp
 
@@ -239,7 +249,7 @@ while true; do
 			# Wait until log file exists, i.e. server has been started...
 			while [ ! -f $LOG ]
 			do
-				echo -n -e "\rWaiting for log file..."
+				echo -n -e "\rWaiting for PostgreSQL server to start up..."
 			done
 
 			clear
