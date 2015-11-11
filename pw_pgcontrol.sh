@@ -6,7 +6,7 @@ function showConfig {
 	echo "  Port: $PORT"
 	echo "  Log : $LOG"
 	echo "  Data: $DATA"
-    echo "  Bin : $BIN"
+	echo "  Bin : $BIN"
 }
 
 function showHelp {
@@ -16,41 +16,41 @@ function showHelp {
 	echo
 	echo "OPTIONS:"
 	echo " -h, --help            |Show this help message"
-    echo " -i, --info            |Show configuration for current directory"
+	echo " -i, --info            |Show configuration for current directory"
 	echo " -s, --start           |Start the PostgreSQL Server"
-	echo " -t, --stop            |Stop the PostgreSQL Server"
+	echo " -S, --stop            |Stop the PostgreSQL Server"
 	echo " -r, --restart         |Restart the PostgreSQL Server"
 	echo "     --status          |Show the status of the PostgreSQL Server"
 	echo " -c, --createdb DB     |Create a database with name DB"
-	echo "     --initdb          |Create a new PostgreSQL database cluster in \$DATA"
+	echo " -I, --initdb          |Create a new PostgreSQL database cluster in \$DATA"
 	echo "                       |Change \$DATA in the ini-file"
-	echo "     --test DB FILE    |Test FILE with database DB (batch mode; single transaction; stop on error)"
-	echo "     --testall DB FILE |Test FILE with database DB (batch mode; multiple transactions; do not stop on error)"
-	echo "     --load DB FILE    |Load FILE with SQL data into the database DB"
-    echo " -p, --psql DB         |Start psql for database DB  with current configuration"
-    echo "     --csvout DB FILE  |Same as 'load', but writes results as CSV to stdout"
-    echo "     --csvload DB TABLE FILE"
-    echo "                       |Load a csv-file and store contents in table TABLE"
-    echo "     --comparetables DB TABLE FILE"
-    echo "                       |Execute the query in FILE, and compare results with TABLE"
-    echo "     --patchcreate ORIGPATH NEWPATH PATCHFILE"
-    echo "                       |Create a patch by comparing two Postgres directories with diff"
-    echo "                       |See man diff for further details."
-    echo "     --patchapply PLEVEL PATCHFILE"
-    echo "                       |Apply a patch to a Postgres source code directory"
-    echo "                       |See man patch for further details."
-    echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
-    echo "                       |displays server's log file"
+	echo " -t, --test DB FILE    |Test FILE with database DB (batch mode; single transaction; stop on error)"
+	echo " -T, --testall DB FILE |Test FILE with database DB (batch mode; multiple transactions; do not stop on error)"
+	echo " -l, --load DB FILE    |Load FILE with SQL data into the database DB"
+	echo " -p, --psql DB         |Start psql for database DB  with current configuration"
+	echo "     --csvout DB FILE  |Same as 'load', but writes results as CSV to stdout"
+	echo "     --csvload DB TABLE FILE"
+	echo "                       |Load a csv-file and store contents in table TABLE"
+	echo "     --comparetables DB TABLE FILE"
+	echo "                       |Execute the query in FILE, and compare results with TABLE"
+	echo "     --patchcreate ORIGPATH NEWPATH PATCHFILE"
+	echo "                       |Create a patch by comparing two Postgres directories with diff"
+	echo "                       |See man diff for further details."
+	echo "     --patchapply PLEVEL PATCHFILE"
+	echo "                       |Apply a patch to a Postgres source code directory"
+	echo "                       |See man patch for further details."
+	echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
+	echo "                       |displays server's log file"
 	echo
 	echo "CONFIG:"
-    showConfig
+	showConfig
 	echo "  > Note: Change configurations in '$INI' inside your PostgreSQL directory."
 
-    exit 0
+	exit 0
 }
 
 function showError {
-    echo "$SCRIPTNAME: ERROR: $1" >&2
+	echo "$SCRIPTNAME: ERROR: $1" >&2
 	echo >&2
 	showHelp >&2
 }
@@ -80,7 +80,7 @@ function checkArguments {
 # 	Call the PostgreSQL control program pg_ctl, either with or without log file 
 #   output.
 #
-# 	$1 - pg_ctl command (ex., status, start, stop) 
+#   $1 - pg_ctl command (ex., status, start, stop) 
 #   $2 - data dir of the PostgreSQL cluster 
 #   $3 - server port
 #   $4 - log file
@@ -88,6 +88,20 @@ function callPgCtl {
 	L=""
 	test -n $4 && L="-l $4"
 	$BIN/pg_ctl $1 -D $2 $L -o "-p $3"
+	return $?
+}
+
+
+# callPsql
+# 	Call the PostgreSQL client program psql for the server on localhost with a
+#   given port, data cluster directory, and file that should be executed.
+#
+#   $1 - server port
+#   $2 - data dir of the PostgreSQL cluster
+#   $3 - SQL file that must be executed
+#   $4 - Additional parameters
+function callPsql {
+	$BIN/psql -p $1 -h localhost -d $2 -f $3 $4
 	return $?
 }
 
@@ -100,7 +114,7 @@ function callPgCtl {
 # indicate it has a required argument, and by two colons to indicate it has
 # an optional argument.
 ARGS=$(
-	getopt -q -o "hisrtc:p:m" \
+	getopt -q -o "hisrtTSIc:l:p:m" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
 	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make" \
 	-n $SCRIPTNAME -- "$@"
@@ -139,7 +153,7 @@ while true; do
 			callPgCtl status $DATA $PORT $LOG
 			exit $?
 		;;
-		-t | --stop)
+		-S | --stop)
 			callPgCtl stop $DATA $PORT $LOG
 			exit $?
 		;;
@@ -148,24 +162,20 @@ while true; do
 			$BIN/createdb -p $PORT -h localhost $2
 		    exit $?
 		;;
-		--load)
+		-l | --load)
 			checkArguments $# 3 "$1: no database name and/or data-file specified!"
-			$BIN/psql -p $PORT -h localhost -d $2 -f $3 		
+			callPsql $PORT $2 $4 		
 			exit $?
 		;;
-		--test)
+		-t | --test)
 			# Resource: http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
-		
-			checkArguments $# 3 "$1: no database name and/or test-file specified!"
-			# echo "Test '$3' starts now..." >&2
-			# echo "NB: We stop on first error and use a single transaction mode" >&2
-			# echo >&2
-			PGOPTIONS='--client-min-messages=warning' $BIN/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $3 	
+			checkArguments $# 4 "--test DB FILE: no database name or test-file specified!"
+			PGOPTIONS='--client-min-messages=warning' $BIN/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $4 2>&1
 			exit $?
 		;;
-		--testall)
-			checkArguments $# 3 "$1: no database name and/or test-file specified!"
-			PGOPTIONS='--client-min-messages=warning' $BIN/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $3 2>&1		
+		-T | --testall)
+			checkArguments $# 4 "--testall DB FILE: no database name or test-file specified!"
+			PGOPTIONS='--client-min-messages=warning' $BIN/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $4 2>&1		
 			exit $?
 		;;
 		--debug)
@@ -200,7 +210,7 @@ while true; do
 			$BIN/psql -p $PORT -h localhost -d $2 -c "SELECT * FROM $3 UNION SELECT * FROM ($query) XXXXX EXCEPT ALL SELECT * FROM $3 INTERSECT SELECT * FROM ($query) YYYYY"
 			exit $?
 		;;
-		--initdb)
+		-I | --initdb)
 			$BIN/initdb -D $DATA
 			exit $?
 		;;

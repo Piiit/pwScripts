@@ -20,13 +20,14 @@ function showHelp {
 
 # Each short option character in shortopts may be followed by one colon to indicate it has a required 
 # argument, and by two colons to indicate it has an optional argument.
-TEMP=$(getopt -o hvsi:c: --long help,verbose,silent,ignore:,command: -n $SCRIPTNAME -- "$@")
+TEMP=$(getopt -o hvski:c: --long help,verbose,silent,ignore:,command:,keepinfo -n $SCRIPTNAME -- "$@")
 
 if [ $? != 0 ] ; then echo "$SCRIPTNAME: Parameter parsing failed (getopt). Terminating..." >&2 ; exit 1 ; fi
 
 # Note the quotes around `$TEMP': they are essential!
 eval set -- "$TEMP"
 
+KEEP=false
 SILENT=false
 VERBOSE=false
 DEBUGFILE=
@@ -56,6 +57,10 @@ while true; do
 		SILENT=true
 		shift
 	;;
+	-k | --keepinfo )
+		KEEP=true
+		shift
+	;;
     --debugfile ) 
     	DEBUGFILE="$2"
     	shift 2 
@@ -83,12 +88,12 @@ TMPFILE2="/tmp/$SCRIPTNAME-stderr.$$.tmp"
 
 function diffCmd {
 
-echo $IGNORESTRING
-
 	DIFFCMD="diff -Bbc --suppress-common-lines "
 	if test -n "$IGNORESTRING"; then
 		outVerbose "Ignoring '$IGNORESTRING' while comparing..."
-		DIFFCMD=$DIFFCMD" -I"$IGNORESTRING
+		echo "IGNORING does not work currently: Not implemented!"
+		exit 1
+		DIFFCMD="$DIFFCMD -I $IGNORESTRING"
 	fi
 	
 	DIFFOUT=$($SILENT && echo /dev/null || echo /dev/stdout)
@@ -98,8 +103,13 @@ echo $IGNORESTRING
 		OUT=$?
 		if test $OUT -ne 0; then
 			echo "ERROR: UNABLE TO EXECUTE TESTS..."
-			printf "\tCommand '$CMD' failed with error-code '$OUT' and stderr output:\n"
+			printf "Command '$CMD' failed with error-code '$OUT' and the following output:\n"
+			printf "STDOUT output-----------------------------------------\n"
+			cat $TMPFILE1
+			printf "\n------------------------------------------------------\n"
+			printf "STDERR output-----------------------------------------\n"
 			cat $TMPFILE2
+			printf "\n------------------------------------------------------\n"
 			exit 1
 		fi
 		
