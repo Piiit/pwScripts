@@ -41,6 +41,7 @@ function showHelp {
 	echo "                       |See man patch for further details."
 	echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
 	echo "                       |displays server's log file"
+	echo " -x, --restartclean    |Remove logfile, restart server and output log constantly"
 	echo
 	echo "CONFIG:"
 	showConfig
@@ -114,9 +115,10 @@ function callPsql {
 # indicate it has a required argument, and by two colons to indicate it has
 # an optional argument.
 ARGS=$(
-	getopt -q -o "hisrtTSIc:l:p:m" \
+	getopt -q -o "hisrtTSIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
-	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make" \
+	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make,
+	restartclean" \
 	-n $SCRIPTNAME -- "$@"
 )
 
@@ -205,9 +207,7 @@ while true; do
 			exit $?
 		;;
 		--comparetables)
-			# http://stackoverflow.com/questions/4602083/sql-compare-data-from-two-tables
-			query=$(sed 's/;//' $4 | grep -v ^SET ) 
-			$BIN/psql -p $PORT -h localhost -d $2 -c "SELECT * FROM $3 UNION SELECT * FROM ($query) XXXXX EXCEPT ALL SELECT * FROM $3 INTERSECT SELECT * FROM ($query) YYYYY"
+			$BIN/psql -p $PORT -h localhost -d $2 -c "WITH test AS ($4), test2 AS ($5) SELECT * FROM ((TABLE test EXCEPT ALL TABLE test2) UNION (TABLE test2 EXCEPT ALL TABLE test)) d;"
 			exit $?
 		;;
 		-I | --initdb)
@@ -238,6 +238,35 @@ while true; do
 			checkArguments $# 3 "$1: Provide a p-level and a patch-file to apply a patch to a postgres directory."
 			patch -p$2 < $3
 			exit $?
+		;;
+		-x | --restartclean )
+			# Remove logfile, restart server and show log constantly...
+			test -z $LOG && {
+				showError "LOG not set in INI file $INI."
+				exit 1
+			}
+
+			rm -f $LOG || {
+				showError "Can not remove LOG file $LOG."
+				exit 1
+			}
+
+			callPgCtl restart $DATA $PORT $LOG
+
+			if test $? -ne 0; then
+				exit $?
+			fi
+
+			# Wait until log file exists, i.e. server has been started...
+			while [ ! -f $LOG ]
+			do
+				echo -n -e "\rWaiting for PostgreSQL server to start up..."
+			done
+
+			clear
+			tail -f $LOG
+
+			exit 0
 		;;
 		-m | --make )
 			test -z $LOG && {
