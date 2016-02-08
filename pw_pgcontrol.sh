@@ -31,6 +31,8 @@ function showHelp {
 	echo "                       |Change \$DATA in the ini-file"
 	echo " -t, --test DB FILE    |Test FILE with database DB (batch mode; single transaction; stop on error)"
 	echo " -T, --testall DB FILE |Test FILE with database DB (batch mode; multiple transactions; do not stop on error)"
+	echo "     --regressiontest DB FILE"
+	echo "                       |Run FILE with database DB to create a regression test file for PG test/regress/expected"
 	echo " -l, --load DB FILE    |Load FILE with SQL data into the database DB"
 	echo " -p, --psql DB         |Start psql for database DB  with current configuration"
 	echo "     --csvout DB FILE  |Same as 'load', but writes results as CSV to stdout"
@@ -47,7 +49,7 @@ function showHelp {
 	echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
 	echo "                       |displays server's log file"
 	echo " -x, --restartclean    |Remove logfile, restart server and output log constantly"
-	echo "     --configure		 |Run configure with default parameters"
+	echo "     --configure       |Run configure with default parameters"
 	echo
 	echo "CONFIG:"
 	showConfig
@@ -130,8 +132,6 @@ ARGS=$(
 
 if [ $? != 0 ] ; then
 	showError "Wrong argument given: $@"
-	echo
-	showHelp
 	exit 1
 fi
 
@@ -335,8 +335,6 @@ while true; do
 		;;
 		*)
 		    showError "OPTION '$1' does not exist."
-		    echo
-		    showHelp
 		    exit 1
 		;;
 	esac
@@ -346,7 +344,5 @@ done
 
 # We should not reach this line!
 showError "No parameter specified"
-echo
-showHelp
 
 exit 1
