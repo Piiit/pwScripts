@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# This script controls PostgreSQL servers, clients, and build processes.
+# Some information have been taken from:
+# http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
+
 SCRIPTNAME=${0##*/}
 INI=.pw_pgcontrol.ini
 
@@ -6,11 +11,11 @@ function showConfig {
 	echo "  Port: $PORT"
 	echo "  Log : $LOG"
 	echo "  Data: $DATA"
-	echo "  Bin : $BIN"
+	echo "  Build : $BUILD"
 }
 
 function showHelp {
-	echo "USAGE:" 
+	echo "USAGE:"
 	echo " $SCRIPTNAME [OPTIONS]"
 	echo " This is a script to control a PostgreSQL instance."
 	echo
@@ -31,8 +36,8 @@ function showHelp {
 	echo "     --csvout DB FILE  |Same as 'load', but writes results as CSV to stdout"
 	echo "     --csvload DB TABLE FILE"
 	echo "                       |Load a csv-file and store contents in table TABLE"
-	echo "     --comparetables DB TABLE FILE"
-	echo "                       |Execute the query in FILE, and compare results with TABLE"
+	echo "     --comparetables DB QUERY1 QUERY2"
+	echo "                       |Run both queries and compare results"
 	echo "     --patchcreate ORIGPATH NEWPATH PATCHFILE"
 	echo "                       |Create a patch by comparing two Postgres directories with diff"
 	echo "                       |See man diff for further details."
@@ -42,6 +47,7 @@ function showHelp {
 	echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
 	echo "                       |displays server's log file"
 	echo " -x, --restartclean    |Remove logfile, restart server and output log constantly"
+	echo "     --configure		 |Run configure with default parameters"
 	echo
 	echo "CONFIG:"
 	showConfig
@@ -58,14 +64,14 @@ function showError {
 
 # Fetch environment information about the PostgreSQL installation
 function loadINI {
-	test -f $INI && . $INI || { 
+	test -f $INI && . $INI || {
 		showError "No evironment INI file found. Have you specified PostgreSQL configs in $INI?"
 		return 1
 	}
-	
-	# Binary dir default setting, if not set inside the INI-file...
-	test -z $BIN && BIN="./server/bin"
-	
+
+	# Build dir default setting, if not set inside the INI-file...
+	test -z $BUILD && BUILD="./server"
+
 	return 0
 }
 
@@ -77,18 +83,18 @@ function checkArguments {
 }
 
 
-# callPgCtl 
-# 	Call the PostgreSQL control program pg_ctl, either with or without log file 
+# callPgCtl
+# 	Call the PostgreSQL control program pg_ctl, either with or without log file
 #   output.
 #
-#   $1 - pg_ctl command (ex., status, start, stop) 
-#   $2 - data dir of the PostgreSQL cluster 
+#   $1 - pg_ctl command (ex., status, start, stop)
+#   $2 - data dir of the PostgreSQL cluster
 #   $3 - server port
 #   $4 - log file
 function callPgCtl {
 	L=""
 	test -n $4 && L="-l $4"
-	$BIN/pg_ctl $1 -D $2 $L -o "-p $3"
+	$BUILD/bin/pg_ctl $1 -D $2 $L -o "-p $3"
 	return $?
 }
 
@@ -102,13 +108,13 @@ function callPgCtl {
 #   $3 - SQL file that must be executed
 #   $4 - Additional parameters
 function callPsql {
-	$BIN/psql -p $1 -h localhost -d $2 -f $3 $4
+	$BUILD/bin/psql -p $1 -h localhost -d $2 -f $3 $4
 	return $?
 }
 
 ##
 ## MAIN
-## 
+##
 
 # Handling of script arguments...
 # Each short option character in shortopts may be followed by one colon to
@@ -118,7 +124,7 @@ ARGS=$(
 	getopt -q -o "hisrtTSIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
 	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make,
-	restartclean" \
+	restartclean,regressiontest:,configure" \
 	-n $SCRIPTNAME -- "$@"
 )
 
@@ -137,11 +143,11 @@ CMD=
 while true; do
 	case "$1" in
 		-h | --help)
-			showHelp	
+			showHelp
 		;;
 		-i | --info)
-		    showConfig       
-		    exit 0 
+		    showConfig
+		    exit 0
 		;;
 		-s | --start)
 			callPgCtl start $DATA $PORT $LOG
@@ -150,7 +156,7 @@ while true; do
 		-r | --restart)
 			callPgCtl restart $DATA $PORT $LOG
 			exit $?
-		;; 
+		;;
 		--status)
 			callPgCtl status $DATA $PORT $LOG
 			exit $?
@@ -161,62 +167,75 @@ while true; do
 		;;
 		-c | --createdb)
 			checkArguments $# 2 "$1: no database name specified!"
-			$BIN/createdb -p $PORT -h localhost $2
+			$BUILD/bin/createdb -p $PORT -h localhost $2
 		    exit $?
 		;;
 		-l | --load)
 			checkArguments $# 3 "$1: no database name and/or data-file specified!"
-			callPsql $PORT $2 $4 		
+			callPsql $PORT $2 $4
 			exit $?
 		;;
 		-t | --test)
-			# Resource: http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
 			checkArguments $# 4 "--test DB FILE: no database name or test-file specified!"
-			PGOPTIONS='--client-min-messages=warning' $BIN/psql -p $PORT -h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off -d $2 -f $4 2>&1
+			PGOPTIONS='--client-min-messages=warning' $BUILD/bin/psql -p $PORT \
+				-h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off \
+				-d $2 -f $4 2>&1
+			exit $?
+		;;
+		--regressiontest)
+			# The -f parameter produces error messages with filename and line of
+			# code numbers, where the error occurred. Therefore, we use
+			# "< filename" instead of "-f filename"
+			checkArguments $# 4 "--regressiontest DB FILE: no database name or test-file specified!"
+			PGOPTIONS='--client-min-messages=warning' $BUILD/bin/psql -p $PORT \
+				-h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off \
+				-d $2 < $4 2>&1
 			exit $?
 		;;
 		-T | --testall)
 			checkArguments $# 4 "--testall DB FILE: no database name or test-file specified!"
-			PGOPTIONS='--client-min-messages=warning' $BIN/psql -p $PORT -h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off -d $2 -f $4 2>&1		
+			PGOPTIONS='--client-min-messages=warning' $BUILD/bin/psql -p $PORT \
+				-h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off \
+				-d $2 -f $4 2>&1
 			exit $?
 		;;
 		--debug)
-		    $BIN/psql -a -e -p $PORT -h localhost -d $2 -f $3 
-		    exit $?		
+		    $BUILD/bin/psql -a -e -p $PORT -h localhost -d $2 -f $3
+		    exit $?
 		;;
 		-p | --psql)
 			# TODO Build a better checkArguments here... pass additional parameters if any.
-		    checkArguments $# 2 "$1: database name missing or too many arguments given." 
-		    $BIN/psql -p $PORT -h localhost -d $2
+		    checkArguments $# 2 "$1: database name missing or too many arguments given."
+		    $BUILD/bin/psql -p $PORT -h localhost -d $2
 		    exit $?
 		;;
 		--csvout)
-			query=$(sed 's/;//' $3 | grep -v ^SET ) 
-			$BIN/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV HEADER DELIMITER ';'"
+			query=$(sed 's/;//' $3 | grep -v ^SET )
+			$BUILD/bin/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV HEADER DELIMITER ';'"
 			exit $?
 		;;
 		--csvout2)
-			query=$(sed 's/;//' $3 | grep -v ^SET ) 
-			$BIN/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV DELIMITER ','"
+			query=$(sed 's/;//' $3 | grep -v ^SET )
+			$BUILD/bin/psql -p $PORT -h localhost -d $2 -c "COPY ( $query ) TO STDOUT WITH CSV DELIMITER ','"
 			exit $?
 		;;
 		--csvload)
 			# To fetch the absolute path with filename
 			file=$(readlink -m $4)
-			$BIN/psql -p $PORT -h localhost -d $2 -c "COPY $3 FROM '$file' DELIMITER ';' CSV HEADER"
+			$BUILD/bin/psql -p $PORT -h localhost -d $2 -c "COPY $3 FROM '$file' DELIMITER ';' CSV HEADER"
 			exit $?
 		;;
 		--comparetables)
-			$BIN/psql -p $PORT -h localhost -d $2 -c "WITH test AS ($4), test2 AS ($5) SELECT * FROM ((TABLE test EXCEPT ALL TABLE test2) UNION (TABLE test2 EXCEPT ALL TABLE test)) d;"
+			$BUILD/bin/psql -p $PORT -h localhost -d $2 -c "WITH test AS ($4), test2 AS ($5) SELECT * FROM ((TABLE test EXCEPT ALL TABLE test2) UNION (TABLE test2 EXCEPT ALL TABLE test)) d;"
 			exit $?
 		;;
 		-I | --initdb)
-			$BIN/initdb -D $DATA
+			$BUILD/bin/initdb -D $DATA
 			exit $?
 		;;
 		--testinitdb)
 			TMPDIR="/tmp/$SCRIPTNAME-initdb-test.$$"
-	 		$BIN/initdb -D $TMPDIR
+	 		$BUILD/bin/initdb -D $TMPDIR
 	 		RES=$?
 	 		rm -rf $TMPDIR
 	 		exit $RES
@@ -296,12 +315,26 @@ while true; do
 
 			exit 0
 		;;
-		-- ) 
+		--configure )
+
+			# Disable all compile optimization techniques. Step-by-step
+			# debugging works better without.
+			export CFLAGS="-g0"
+
+		    ./configure \
+				--prefix="$(readlink -f $BUILD)" \
+				--enable-debug \
+				--enable-depend \
+				--enable-cassert
+
+			exit $?
+		;;
+		-- )
 			shift
-			break 
+			break
 		;;
 		*)
-		    showError "OPTION '$1' does not exist." 
+		    showError "OPTION '$1' does not exist."
 		    echo
 		    showHelp
 		    exit 1
