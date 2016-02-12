@@ -40,11 +40,11 @@ function showHelp {
 	echo "                       |Load a csv-file and store contents in table TABLE"
 	echo "     --comparetables DB QUERY1 QUERY2"
 	echo "                       |Run both queries and compare results"
-	echo "     --patchcreate ORIGPATH NEWPATH PATCHFILE"
-	echo "                       |Create a patch by comparing two Postgres directories with diff"
-	echo "                       |See man diff for further details."
-	echo "     --patchapply PLEVEL PATCHFILE"
-	echo "                       |Apply a patch to a Postgres source code directory"
+	echo "     --patchcreate PATCHFILE"
+	echo "                       |Create a patch against PostgreSQL origin/master without src/test"
+	echo "     --patchcreatetestonly PATCHFILE"
+	echo "                       |Create a patch against PostgreSQL origin/master, but src/test only!"
+	echo "     --patch PATCHFILE |Apply a patch to a Postgres source code directory"
 	echo "                       |See man patch for further details."
 	echo " -m, --make            |Compiles the source of PostgreSQL, restarts the server, and"
 	echo "                       |displays server's log file"
@@ -125,8 +125,8 @@ function callPsql {
 ARGS=$(
 	getopt -q -o "hisrtTSIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
-	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patchapply:make,
-	restartclean,regressiontest:,configure" \
+	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,make,
+	restartclean,regressiontest:,configure,patchcreatetestonly:" \
 	-n $SCRIPTNAME -- "$@"
 )
 
@@ -241,21 +241,24 @@ while true; do
 	 		exit $RES
 		;;
 		--patchcreate)
-			checkArguments $# 4 "$1: diff requires <origpath> <newpath>, and <patch-file> to create a patch with name <patch-file>."
-			# -x excludes some file types that are not required for patches.
-			#    add more here, if they show up in the future.
-			diff -x '*.o' \
-			     -x '*.global' \
-			     -x '.*' \
-			     -x '*.log' \
-			     -x '*.stat' \
-			     -x '*.status' \
-			     -x '*.patch' -rupN $2 $3 > $4
+			checkArguments $# 2 "$1: No <patch-file> given."
+
+			git diff --ignore-space-at-eol --no-prefix origin/master -- src/ \
+				| filterdiff -p 0 -x "src/test/*" \
+				| sed '/diff --git src\/test/,/^index/{d}' - > $2
+
 			exit $?
 		;;
-		--patchapply)
-			checkArguments $# 3 "$1: Provide a p-level and a patch-file to apply a patch to a postgres directory."
-			patch -p$2 < $3
+		--patchcreatetestonly)
+			checkArguments $# 2 "$1: No <patch-file> given."
+
+			git diff --ignore-space-at-eol --no-prefix origin/master -- src/test/ > $2
+
+			exit $?
+		;;
+		--patch)
+			checkArguments $# 2 "$1: Provide a patch-file to apply a patch to a postgres directory."
+			patch -p0 < $3
 			exit $?
 		;;
 		-x | --restartclean )
