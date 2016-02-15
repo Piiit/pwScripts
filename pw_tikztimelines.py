@@ -7,6 +7,10 @@
 
 r"""TIKZ IMAGE GENERATOR FOR TIMELINE AND TEMPORAL TUPLES
 
+
+Introduction
+------------
+
 Reads an PostgreSQL (psql --echo-all, see man-page of psql for further details)
 output, and creates a standalone TIKZ tex-figure. To configure each output
 table or timeline a SQL comment starting with "TIKZ:" must be provided. In
@@ -17,10 +21,13 @@ addtion this script needs the following prerequisites for the input:
      This is optional.
 
 We do not use some Python PostgreSQL libs here, because TEMPORAL OPERATORS are
-not supported yet. Another reason is that we could create output files manually
-if we do not have a running TEMPORAL POSTGRESQL instance running.
+not supported yet. Another reason is that we can create output files manually,
+if we do not have a (TEMPORAL) POSTGRESQL instance running.
 
-TIKZ-comment syntax:
+
+TIKZ-comment syntax
+-------------------
+
 First argument after "TIKZ: " is the type of drawing, currently only relations
 and timelines are supported.
 
@@ -30,7 +37,8 @@ The abbreviation is optional (it is used for tuple names).
 -- TIKZ: timeline, from, to, description
 
 
-For example:
+For example
+-----------
    -- TIKZ: relation, r, ts, te, Input relation r
    TABLE r;
     a | ts | te
@@ -49,14 +57,16 @@ For example:
 
    -- TIKZ: timeline, 0, 10, time
 
----------
+
 Changelog
 ---------
+
   0.2
       - Reads configs from SQL comments with prefix "-- TIKZ"
       - Checks if TIKZ configs and data input matches
       - Different string formatting techniques tested (just for fun!)
       - Skips SQL commands
+      - pylint errors and warnings fixed (most)
   0.1
       - Creates a standalone tikz picture from a PostgreSQL output
       - Skips comments and empty lines
@@ -291,19 +301,9 @@ def parse():
             'data': data,
             'raw_data': raw_data,}
 
-def main():
-    """Main, nothing more to say :-)"""
-
-    result = parse()
-
-    raw_data = result['raw_data']
-    data = result['data']
-    configs = result['configs']
-
-    ###########################################################################
-    # GENERATOR
-    #
-    # Now we have read the input, it is time to generate valid TIKZ output.
+def tikz_print(configs, data, raw_data):
+    """Now we have read the input, it is time to generate valid TIKZ
+    output."""
 
     # Count tuples above the timeline. We do this, because we need to count
     # backwards while creating lines above the timeline. However, it is not
@@ -368,6 +368,18 @@ def main():
 
 
     tikz_print_bottom()
+
+def main():
+    """Main, nothing more to say :-)"""
+
+    result = parse()
+
+    raw_data = result['raw_data']
+    data = result['data']
+    configs = result['configs']
+
+    tikz_print(configs, data, raw_data)
+
 
 if __name__ == '__main__':
     main()
