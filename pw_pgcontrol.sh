@@ -35,6 +35,8 @@ function showHelp {
 	echo "                       |Run FILE with database DB to create a regression test file for PG test/regress/expected"
 	echo " -l, --load DB FILE    |Load FILE with SQL data into the database DB"
 	echo " -p, --psql DB         |Start psql for database DB  with current configuration"
+	echo "     --execute DB COMMAND"
+	echo "                       |Execute COMMAND on database DB"
 	echo "     --csvout DB FILE  |Same as 'load', but writes results as CSV to stdout"
 	echo "     --csvload DB TABLE FILE"
 	echo "                       |Load a csv-file and store contents in table TABLE"
@@ -126,7 +128,7 @@ ARGS=$(
 	getopt -q -o "hisrtTSIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
 	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,make,
-	restartclean,regressiontest:,configure,patchcreatetestonly:" \
+	restartclean,regressiontest:,configure,patchcreatetestonly:,execute:" \
 	-n $SCRIPTNAME -- "$@"
 )
 
@@ -229,6 +231,10 @@ while true; do
 			$BUILD/bin/psql -p $PORT -h localhost -d $2 -c "WITH test AS ($4), test2 AS ($5) SELECT * FROM ((TABLE test EXCEPT ALL TABLE test2) UNION (TABLE test2 EXCEPT ALL TABLE test)) d;"
 			exit $?
 		;;
+		--execute)
+			$BUILD/bin/psql -p $PORT -h localhost -d $2 -c "$4"
+			exit $?
+		;;
 		-I | --initdb)
 			$BUILD/bin/initdb -D $DATA
 			exit $?
@@ -243,7 +249,7 @@ while true; do
 		--patchcreate)
 			checkArguments $# 2 "$1: No <patch-file> given."
 
-			git diff --ignore-space-at-eol --no-prefix origin/master -- src/ \
+			git diff --no-prefix origin/master -- src/ \
 				| filterdiff -p 0 -x "src/test/*" \
 				| sed '/diff --git src\/test/,/^index/{d}' - > $2
 
@@ -252,7 +258,7 @@ while true; do
 		--patchcreatetestonly)
 			checkArguments $# 2 "$1: No <patch-file> given."
 
-			git diff --ignore-space-at-eol --no-prefix origin/master -- src/test/ > $2
+			git diff --no-prefix origin/master -- src/test/ > $2
 
 			exit $?
 		;;
