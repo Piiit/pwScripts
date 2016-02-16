@@ -77,6 +77,7 @@ import sys
 import time
 import re
 import os
+import copy
 
 VERSION = 0.2
 
@@ -214,10 +215,11 @@ def parse_integrity_checks(configs_count, table_counts):
         print_error_msg(
             "More than one TIKZ timeline string found",
             "Define a single configuration string for the timeline.\n" +
-            "For example:\n" \
+            "For example:\n" +
             "-- TIKZ: timeline, from, to, time line description")
         sys.exit(3)
 
+# FIXME We loose column ordering, because dictionaries sort automatically
 def parse(lines):
     """We parse the input lines with a simple state machine"""
 
@@ -306,9 +308,13 @@ def parse(lines):
             'data': data,
             'raw_data': raw_data,}
 
-def tikz_print(configs, data, raw_data):
+def tikz_print_figure(parse_result):
     """Now we have read the input, it is time to generate valid TIKZ
     output."""
+
+    raw_data = parse_result['raw_data']
+    data = parse_result['data']
+    configs = copy.deepcopy(parse_result['configs'])
 
     # Count tuples above the timeline. We do this, because we need to count
     # backwards while creating lines above the timeline. However, it is not
@@ -355,9 +361,7 @@ def tikz_print(configs, data, raw_data):
 
         for tup in table:
             tikz_print_line(tup, cfg, tuple_count, count)
-
             count -= 1
-
             if timeline_printed:
                 tuple_count += 1
             else:
@@ -371,20 +375,64 @@ def tikz_print(configs, data, raw_data):
         if check_key(cfg, 'type', 'timeline'):
             tikz_print_timeline(cfg)
 
-
     tikz_print_bottom()
+
+# FIXME We should refactor this, and create a function that handles a single
+# table only
+def latex_print_table(parse_result):
+    """Print all tables found during parsing"""
+    table_template = r"""
+        \begin{{table}}
+            \renewcommand{{\arraystretch}}{{1.3}}
+            \caption{{{caption}}}
+            \label{{tab:{label}}}
+            \centering
+            \begin{{tabular}}{{c|{header_cfg}|}}
+                \cline{{2-{length}}}
+                ~ & {header} \\
+                \cline{{2-{length}}}
+                {rows}
+                \cline{{2-{length}}}
+            \end{{tabular}}
+        \end{{table}}
+        """
+
+    table_index = 0
+    for table in parse_result['data']:
+
+        # FIXME Skip all non-relation config lines
+        cfg = parse_result['configs'][table_index]
+        if cfg['type'] != 'relation':
+            cfg = parse_result['configs'][table_index + 1]
+
+        print cfg
+
+        # Concatenate all non-temporal attributes as description above the line
+        attribs = r" & ".join(table[0].keys())
+        rows = ""
+        row_count = 0
+        for row in table:
+            row_count += 1
+            rows += "$%s_%d$ & %s \\\\\n" % (cfg['name'],
+                                             row_count,
+                                             r" & ".join(row.values()))
+
+        print table_template.format(
+                caption=cfg['desc'],
+                label="table%02d" % table_index,
+                length=len(table) + 1,
+                header_cfg="c" * len(table[0].keys()),
+                header=attribs.rstrip(" &"),
+                rows=rows.rstrip("\n"))
+        table_index += 1
+
 
 def main():
     """Main, nothing more to say :-)"""
 
-    result = parse(sys.stdin)
-
-    raw_data = result['raw_data']
-    data = result['data']
-    configs = result['configs']
-
-    tikz_print(configs, data, raw_data)
-
+    parse_result = parse(sys.stdin)
+    tikz_print_figure(parse_result)
+    latex_print_table(parse_result)
 
 if __name__ == '__main__':
     main()
