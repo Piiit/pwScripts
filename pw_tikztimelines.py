@@ -234,7 +234,7 @@ def parse(lines):
 
     configs = []
     configs_count = {'timeline': 0, 'relation': 0, 'others': 0}
-    data = []
+    tables = []
     raw_data = ""
     state = State.OUTSIDE
     table_count = 0
@@ -284,8 +284,8 @@ def parse(lines):
                 print "Parse error: not enough temporal attributes found"
                 sys.exit(1)
 
-            data.append([])
-            table_count = len(data) - 1
+            tables.append([])
+            table_count = len(tables) - 1
 
         # Not skipped and currently in a tuple state, therefore the next data
         # line must be another tuple, or tuple count, i.e., (3 rows)
@@ -300,12 +300,12 @@ def parse(lines):
             values = []
             for value in line.split('|'):
                 values.append(value.strip())
-            data[table_count].append(dict(zip(headers, values)))
+            tables[table_count].append(values)
 
-    parse_integrity_checks(configs_count, len(data))
+    parse_integrity_checks(configs_count, len(tables))
 
     return {'configs': configs,
-            'data': data,
+            'tables': tables,
             'raw_data': raw_data,}
 
 def tikz_print_figure(parse_result):
@@ -313,7 +313,7 @@ def tikz_print_figure(parse_result):
     output."""
 
     raw_data = parse_result['raw_data']
-    data = parse_result['data']
+    tables = parse_result['tables']
     configs = copy.deepcopy(parse_result['configs'])
 
     # Count tuples above the timeline. We do this, because we need to count
@@ -322,7 +322,7 @@ def tikz_print_figure(parse_result):
     # index 1 is always close to the timeline in the middle.
     count_above = 0
     i = 0
-    for dat in data:
+    for dat in tables:
         if check_key(configs[i], 'type', 'timeline'):
             break
         count_above += len(dat)
@@ -336,7 +336,7 @@ def tikz_print_figure(parse_result):
     # We use the config-list as stack, therefore we must reverse it first...
     configs.reverse()
 
-    for table in data:
+    for table in tables:
 
         cfg = configs.pop()
 
@@ -398,7 +398,7 @@ def latex_print_table(parse_result):
         """
 
     table_index = 0
-    for table in parse_result['data']:
+    for table in parse_result['tables']:
 
         # FIXME Skip all non-relation config lines
         cfg = parse_result['configs'][table_index]

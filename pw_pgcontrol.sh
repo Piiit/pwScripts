@@ -328,7 +328,7 @@ while true; do
 
 			# Disable all compile optimization techniques. Step-by-step
 			# debugging works better without.
-			export CFLAGS="-g0"
+			export CFLAGS="-O0"
 
 		    ./configure \
 				--prefix="$(readlink -f $BUILD)" \
