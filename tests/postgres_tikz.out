@@ -1,0 +1,38 @@
+-- Temporal aligner
+
+-- TIKZ: relation, r, ts, te, Input relation r
+TABLE r;
+ a | ts | te
+---+----+----
+ B |  1 |  7
+ B |  3 |  9
+ G |  8 | 10
+(3 rows)
+
+-- TIKZ: relation, s, ts, te, Input relation s
+SELECT * FROM s;
+ a | ts | te
+---+----+----
+ B |  2 |  5
+ B |  3 |  4
+ B |  7 |  9
+(3 rows)
+
+
+-- TIKZ: timeline, 0, 10, time
+-- TIKZ: relation-table,, ts, te, Result of query 1
+SELECT * FROM (r ALIGN s ON r.a = s.a WITH (ts,te,ts,te)) AS c;
+ a | ts | te
+---+----+----
+ B |  1 |  2
+ B |  2 |  5
+ B |  3 |  4
+ B |  5 |  7
+ B |  3 |  4
+ B |  3 |  5
+ B |  5 |  7
+ B |  7 |  9
+ G |  8 | 10
+(9 rows)
+
+-- TIKZ: config, label0001, test text with {asdf asdf asdf} \bfseries x
