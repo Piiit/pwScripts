@@ -7,10 +7,8 @@
 
 r"""TIKZ IMAGE GENERATOR FOR TIMELINE AND TEMPORAL TUPLES
 
-
 Introduction
 ------------
-
 Reads an PostgreSQL (psql --echo-all, see man-page of psql for further details)
 output, and creates a standalone TIKZ tex-figure, or combined table/figure
 LaTex file to be used with \input{filename}. To configure each output
@@ -28,7 +26,6 @@ if we do not have a (TEMPORAL) POSTGRESQL instance running.
 
 TIKZ-comment syntax
 -------------------
-
 First argument after "TIKZ: " is the type of drawing. The following lines
 describe which types are supported:
   1) -- TIKZ: relation, [abbrev], start column, end column, description
@@ -64,7 +61,7 @@ Changelog
 ---------
   0.4
       - config line added to provide "label" and "caption" to LaTex
-      - command line arguments
+      - command line arguments (see usage output for details; i.e., --help)
   0.3
       - Parser becomes a generator (i.e., we use yield)
       - Parser simplified, returns only tokens to reuse it later for other
@@ -88,36 +85,86 @@ import stat
 import sys
 import argparse
 
-VERSION = 0.3
+VERSION = 0.4
 
-
-def main(argv):
+def main():
     """Main, nothing more to say :-)"""
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(conflict_handler='resolve')
+
+    parser.add_argument(
+        '--manual',
+        action='store_true',
+        help='Print a short manual showing the module docstring of ' +
+             os.path.basename(__file__))
+
     parser.add_argument(
         'FILE',
-        nargs='*',
+        default='-',
         type=argparse.FileType('r'),
         help='Input files taken from the "psql --echo-all" output')
 
     parser.add_argument(
         '-o',
-        metavar='OUTPUT',
-        type=argparse.FileType('w'),
-        default='-',
+        '--output',
+        metavar='FILE',
         help='Put output into FILE; default is STDOUT')
 
-    args = parser.parse_args(argv)
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument(
+        '-a',
+        '--all',
+        action='store_const',
+        dest='output_type',
+        const='all',
+        help='OUTPUT TYPE: Output the LaTex table and the TIKZ figure '
+             'side-by-side. This is the default.')
+
+    group.add_argument(
+        '-t',
+        '--table-only',
+        action='store_const',
+        dest='output_type',
+        const='table-only',
+        help='OUTPUT TYPE: Output the LaTex table only.')
+
+    group.add_argument(
+        '-f',
+        '--figure-only',
+        action='store_const',
+        dest='output_type',
+        const='figure-only',
+        help='OUTPUT TYPE: Output the TIKZ figure only.')
+
+    group.add_argument(
+        '-F',
+        '--figure-standalone',
+        action='store_const',
+        dest='output_type',
+        const='figure-standalone',
+        help='OUTPUT TYPE: Output the TIKZ figure as a standalone LaTex file.')
+
+    parser.set_defaults(output_type='all')
+
+    # We must capture this option before we parse the arguments, because the
+    # last positional argument FILE is mandatory. Hence, the parser would exit
+    # with an error (There is no meaningful exception to catch, except for
+    # SystemExit).
+    if len(sys.argv) == 2 and sys.argv[1] == '--manual':
+        print __doc__
+        parser.print_help()
+        sys.exit(0)
+
+    # No parse regular command line arguments
+    args = parser.parse_args()
 
     # Stdin file stats to see if it is a pipe or redirection...
     mode = os.fstat(sys.stdin.fileno()).st_mode
 
-    print type(args.FILE)
-
     # Input files are explicitely given as a filename list
-    if type(args.FILE) is list and len(args.FILE) > 0:
-        input_file = args.FILE[0]
+    if type(args.FILE) is file:
+        input_file = args.FILE
         input_text = input_file.readlines()
 
     # We have a piped or redirected STDIN at disposal...
@@ -131,23 +178,59 @@ def main(argv):
 
     try:
         parse_result = parser_postgres_output(input_text)
-        out = tikz_print_figure(parse_result)
 
-        tab = ""
+        figure = ""
+        table = ""
         cfg = []
-        for line in parse_result:
-            if line['type'] == 'relation-table':
-                tab += latex_print_table(line, "", 2)
-            if line['type'] == 'config':
-                cfg = line
 
-        print latex_print_combine(tab, out, cfg['caption'], cfg['label'])
-    except ValueError as v:
-        print "\n".join(v.args) + "\n"
-        sys.exit(-1)
+        if args.output_type in ['all', 'figure-standalone', 'figure-only']:
+            figure = tikz_print_figure(parse_result)
 
+        if args.output_type in ['all', 'table-only']:
+            table_type = 1
+            if args.output_type == 'all':
+                table_type = 2
+            for line in parse_result:
+                if line['type'] == 'relation-table':
+                    table += latex_print_table(line, "", table_type)
+                if line['type'] == 'config':
+                    cfg = line
 
+        # If we print the whole figure/table combination, we need a "label" and
+        # "caption" below the two sub-figures.
+        if args.output_type == 'all' and cfg == []:
+            print_error_msg(
+                "No config line found! We do not know which 'label' and "
+                "'caption' to use for figures.",
+                "Define a configuration string of type 'config'.\n"
+                "For example:\n"
+                "-- TIKZ: config, label, caption")
 
+        outfile = sys.stdout
+        if args.output != None:
+            if os.path.isfile(args.output):
+                print_error_msg(
+                    "File '%s' already exists! Exiting..." % args.output)
+            outfile = open(args.output, 'w')
+
+        if args.output_type == 'all':
+            outfile.write(latex_print_combine(table,
+                                      figure,
+                                      cfg['caption'],
+                                      cfg['label']))
+        elif args.output_type == 'table-only':
+            outfile.write(table)
+        elif args.output_type == 'figure-only':
+            outfile.write(figure)
+        elif args.output_type == 'figure-standalone':
+            outfile.write(tikz_standalone(figure, "".join(input_text)))
+        else:
+            print_error_msg(
+                "Unknown output type specified")
+
+    except ValueError as valerr:
+        print "\n".join(valerr.args) + "\n"
+        sys.exit(3)
 
 def  tikz_print_desc(pos, desc):
     """Prints the description of each found table on the left-hand-side of the
@@ -272,7 +355,6 @@ def parser_postgres_output(text):
     table_count = 0
     configs_count_relation = 0
     configs_count_timeline = 0
-    configs_count_config = 0
 
     for token in tokenizer_postgres_output(text):
         if token[0] == 'COMMENT':
@@ -280,7 +362,6 @@ def parser_postgres_output(text):
             if match:
                 listitems = re.split(r'\s*,\s*', match.group(1))
                 if listitems[0] == 'config':
-                    configs_count_config += 1
                     configs.append(
                         dict(zip(['type',
                                   'label',
@@ -314,13 +395,9 @@ def parser_postgres_output(text):
         elif token[0] == 'TUPLE':
             tables[table_count].append(token[1])
 
-    if configs_count_config == 0:
+    if configs_count_relation == 0:
         print_error_msg(
-            "No config line found! We do not know which 'label' and 'caption'"
-            " to use for figures.",
-            "Define a configuration string of type 'config'.\n"
-            "For example:\n"
-            "-- TIKZ: config, label, caption")
+            "No tables found! Is this a valid input file?")
 
     if configs_count_relation != len(tables):
         print_error_msg(
@@ -400,37 +477,37 @@ def tikz_print_figure(parse_result):
 
     return TEMPLATE_TIKZ_PICTURE.format(content=out)
 
-def tikz_standalone(parse_result, raw_data):
+def tikz_standalone(figure, raw_data):
     return TEMPLATE_TIKZ_DOC.format(
             appname=os.path.basename(__file__),
             appversion=VERSION,
-            content=tikz_print_figure(parse_result),
+            tikzpicture=figure,
             input="".join("%% %s\n" % x
                           for x in raw_data.strip().split("\n")))
 
 
-def latex_print_table(cfg, label, table_type=1):
+def latex_print_table(line, label, table_type=1):
     """Print a single table from a relation-config-line"""
 
-    if cfg['type'] not in ['relation', 'relation-table']:
+    if line['type'] not in ['relation', 'relation-table']:
         print_error_msg("Latex Print Table: Provided config-line has wrong " \
-                        "type '%s' (type 'relation' expected)" % cfg['type'])
+                        "type '%s' (type 'relation' expected)" % line['type'])
 
     # We skip the first element inside a table. It is the header.
-    tuples = cfg['table'][1:]
-    header = cfg['table'][0]
+    tuples = line['table'][1:]
+    header = line['table'][0]
 
     # Concatenate all non-temporal attributes as description above the line
     attribs = r" & ".join(header)
     rows = ""
     for row_count, row in enumerate(tuples, 1):
-        rows += " " * 12 + "$%s_%d$ & %s \\\\\n" % (cfg['name'],
+        rows += " " * 12 + "$%s_%d$ & %s \\\\\n" % (line['name'],
                                          row_count,
                                          r" & ".join(row))
 
     if table_type == 1:
         return TEMPLATE_LATEX_TABLE.format(
-                caption=cfg['desc'],
+                caption=line['desc'],
                 label=label,
                 length=len(header) + 1,
                 header_cfg="c" * len(header),
@@ -441,7 +518,7 @@ def latex_print_table(cfg, label, table_type=1):
                 header_cfg="c" * len(header),
                 header=attribs.rstrip(" &"),
                 rows=rows.rstrip("\n"),
-                relation=cfg['name'])
+                relation=line['name'])
 
 
 def latex_print_combine(table_str, tikz_str, caption, label):
@@ -546,4 +623,4 @@ TEMPLATE_LATEX_TIKZTABLE = r"""
 \end{{figure}}"""
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()
