@@ -177,14 +177,14 @@ def main():
         parser.error("No input files, nor stdin given (i.e., a dash).")
 
     try:
-        parse_result = parser_postgres_output(input_text)
+        parse_result = pgsql_parser(input_text)
 
         figure = ""
         table = ""
         cfg = []
 
         if args.output_type in ['all', 'figure-standalone', 'figure-only']:
-            figure = tikz_print_figure(parse_result)
+            figure = format_tikz_figure(parse_result)
 
         if args.output_type in ['all', 'table-only']:
             table_type = 1
@@ -192,14 +192,14 @@ def main():
                 table_type = 2
             for line in parse_result:
                 if line['type'] == 'relation-table':
-                    table += latex_print_table(line, "", table_type)
+                    table += format_latex_table(line, "", table_type)
                 if line['type'] == 'config':
                     cfg = line
 
         # If we print the whole figure/table combination, we need a "label" and
         # "caption" below the two sub-figures.
         if args.output_type == 'all' and cfg == []:
-            print_error_msg(
+            raise_error(
                 "No config line found! We do not know which 'label' and "
                 "'caption' to use for figures.",
                 "Define a configuration string of type 'config'.\n"
@@ -209,12 +209,12 @@ def main():
         outfile = sys.stdout
         if args.output != None:
             if os.path.isfile(args.output):
-                print_error_msg(
+                raise_error(
                     "File '%s' already exists! Exiting..." % args.output)
             outfile = open(args.output, 'w')
 
         if args.output_type == 'all':
-            outfile.write(latex_print_combine(table,
+            outfile.write(format_latex_figure_and_table(table,
                                       figure,
                                       cfg['caption'],
                                       cfg['label']))
@@ -223,23 +223,23 @@ def main():
         elif args.output_type == 'figure-only':
             outfile.write(figure)
         elif args.output_type == 'figure-standalone':
-            outfile.write(tikz_standalone(figure, "".join(input_text)))
+            outfile.write(format_latex_standalone(figure, "".join(input_text)))
         else:
-            print_error_msg(
+            raise_error(
                 "Unknown output type specified")
 
     except ValueError as valerr:
         print "\n".join(valerr.args) + "\n"
         sys.exit(3)
 
-def  tikz_print_desc(pos, desc):
+def format_tikz_desc(pos, desc):
     """Prints the description of each found table on the left-hand-side of the
     tuple time lines in a standalone tikz figure"""
     return TEMPLATE_TIKZ_DESC.format(pos=pos,
                                      desc=desc)
 
 
-def  tikz_print_line(tup, cfg, tuple_count, count):
+def format_tikz_tupleline(tup, cfg, tuple_count, count):
     """Prints the tuple time lines in a standalone tikz figure"""
     if cfg['name'] == "":
         out = TEMPLATE_TIKZ_TUPLE + "{{$({attribs})$}};\n"
@@ -264,65 +264,60 @@ def  tikz_print_line(tup, cfg, tuple_count, count):
                       posy=count - 0.2,
                       attribs=attribs.rstrip(','))
 
-def  tikz_print_timeline(cfg):
+def format_tikz_timeline(cfg):
     """Prints a timeline in a standalone tikz figure"""
     return TEMPLATE_TIKZ_TIMELINE.format(start=int(cfg['from']),
                                          end=int(cfg['to']),
                                          desc=cfg['desc'])
 
-def print_error_msg(msg, hint=""):
+def raise_error(msg, hint=""):
     """Print an error message and a hint to solve the issue. The text is
     automatically indented behind "ERROR: " and "HINT : " strings."""
     if hint != "":
         hint = "HINT : " + hint
     raise ValueError("ERROR: " + msg, hint)
 
-def tokenizer_postgres_output(lines):
+def pgsql_tokenizer(lines):
     """We parse the input lines with a simple state machine, and generate a
     token (i.e., 2-element list, with key and value) that we give back at each
     iteration"""
 
-    OUTSIDE = 0        # We have not found a table yet
-    HEADER = 1         # We have found a table header (attribute names)
-    TUPLES = 2         # We have already parsed the table header, and are
-                       # reading in tuples now
-
-    state = OUTSIDE
+    state = STATE_OUTSIDE
     for line in lines:
 
         line = line.lstrip()
 
         # Skip empty lines
-        # This ends a table parsing, and returns to the outside state
+        # This ends a table parsing, and returns to the STATE_OUTSIDE state
         if line.rstrip() == "":
-            if state != OUTSIDE:
-                state = OUTSIDE
+            if state != STATE_OUTSIDE:
+                state = STATE_OUTSIDE
             continue
 
         # Skip SQL comments (except if they start with the keyword TIKZ)
         if line.startswith('--'):
 
             # We have found a SQL config line
-            if state == OUTSIDE:
+            if state == STATE_OUTSIDE:
                 yield ['COMMENT', line.lstrip("-- ").rstrip()]
 
             # If we have seen an header line already, this is a table
             # horizontal line which starts tuple lines, i.e., ----+----+-----
-            if state == HEADER:
-                state = TUPLES
+            if state == STATE_HEADER:
+                state = STATE_TUPLES
             continue
 
-        # Not skipped and currently in OUTSIDE state, hence it could be a
+        # Not skipped and currently in STATE_OUTSIDE state, hence it could be a
         # header line, or SQL command. Since we must have at least two temporal
         # columns, we can search for columns delimiters, i.e., |.
-        if state == OUTSIDE:
+        if state == STATE_OUTSIDE:
 
             # Search for table headers, if none found, skip it...
             if None == re.search(r'\s*[^\|]+?\s*\|\s*[^\|]+?', line):
                 yield ['COMMAND', line.rstrip()]
                 continue
 
-            state = HEADER
+            state = STATE_HEADER
             headers = []
             for head in line.split('|'):
                 headers.append(head.strip())
@@ -331,13 +326,13 @@ def tokenizer_postgres_output(lines):
 
         # Not skipped and currently in a tuple state, therefore the next data
         # line must be another tuple, or tuple count, i.e., (3 rows)
-        if state == TUPLES:
+        if state == STATE_TUPLES:
 
             # We skip tuple count rows at the end of each table. This ends
             # a table block.
             match = re.search(r'\((\d+?)\srows\)', line)
             if match:
-                state = OUTSIDE
+                state = STATE_OUTSIDE
                 yield ['TUPLECOUNT', match.group(1)]
                 continue
 
@@ -347,7 +342,7 @@ def tokenizer_postgres_output(lines):
 
             yield ['TUPLE', values]
 
-def parser_postgres_output(text):
+def pgsql_parser(text):
     """We parse the input lines with a simple state machine"""
 
     configs = []
@@ -356,7 +351,7 @@ def parser_postgres_output(text):
     configs_count_relation = 0
     configs_count_timeline = 0
 
-    for token in tokenizer_postgres_output(text):
+    for token in pgsql_tokenizer(text):
         if token[0] == 'COMMENT':
             match = re.search(r'TIKZ:\s(.*)+?', token[1])
             if match:
@@ -376,7 +371,7 @@ def parser_postgres_output(text):
                                   'desc'], listitems)))
                 elif listitems[0] == 'timeline':
                     if configs_count_timeline == 1:
-                        print_error_msg(
+                        raise_error(
                             "More than one TIKZ timeline string found",
                             "Define a single configuration string for the " +
                             "timeline.\n For example:\n" +
@@ -396,11 +391,11 @@ def parser_postgres_output(text):
             tables[table_count].append(token[1])
 
     if configs_count_relation == 0:
-        print_error_msg(
+        raise_error(
             "No tables found! Is this a valid input file?")
 
     if configs_count_relation != len(tables):
-        print_error_msg(
+        raise_error(
             "We do not have enough TIKZ relation config strings",
             "Define a configuration string for each table.\n" +
             "For example:\n" +
@@ -423,24 +418,24 @@ def parser_postgres_output(text):
 
             # One or both temporal attributes are non-existent. Raise an error.
             if not cfg.has_key('tsattnum') or not cfg.has_key('teattnum'):
-                print_error_msg(
+                raise_error(
                     "Temporal attribute '%s' or '%s' not found in table " \
                     "header %s" % (cfg['ts'], cfg['te'], cfg['table'][0]))
 
     return configs
 
-def tikz_print_figure(parse_result):
-    """Now we have read the input, it is time to generate valid TIKZ
-    output."""
-
-    lines = parse_result
+def format_tikz_figure(parse_result):
+    """
+    Draw a TIKZ figure with an optional timeline, tuple-lines for each tuple in
+    all given tables, and description on the right-hand-side of each table.
+    """
 
     # Count tuples above the timeline. We do this, because we need to count
     # backwards while creating lines above the timeline. However, it is not
     # necessary below, because there we count starting from 1, s.t., the
     # index 1 is always close to the timeline in the middle.
     count_above = 0
-    for line in lines:
+    for line in parse_result:
         if line['type'] == 'timeline':
             break
         count_above += len(line['table']) - 1
@@ -448,7 +443,7 @@ def tikz_print_figure(parse_result):
     posy = count_above
     out = ""
 
-    for line in lines:
+    for line in parse_result:
 
         # Only these configuration lines are allowed, skip all others...
         if line['type'] not in ['timeline', 'relation', 'relation-table']:
@@ -456,13 +451,13 @@ def tikz_print_figure(parse_result):
 
         # Print the timeline
         if line['type'] == 'timeline':
-            out += tikz_print_timeline(line)
+            out += format_tikz_timeline(line)
             posy = -2
             continue
 
         # Print description on the left-hand-side of each relation
         if line['desc'].strip() != "":
-            out += tikz_print_desc(posy - len(line['table']) / 2 + 0.5,
+            out += format_tikz_desc(posy - len(line['table']) / 2 + 0.5,
                                    line['desc'])
 
         # We skip the first element inside a table. It is the header.
@@ -472,12 +467,12 @@ def tikz_print_figure(parse_result):
         # each tuple is a list of explicit attributes (i.e., non-temporal
         # columns), and optionally a tuple identifier "relation_tuplecount"
         for tuple_count, tup in enumerate(table, 1):
-            out += tikz_print_line(tup, line, tuple_count, posy)
+            out += format_tikz_tupleline(tup, line, tuple_count, posy)
             posy -= 1
 
     return TEMPLATE_TIKZ_PICTURE.format(content=out)
 
-def tikz_standalone(figure, raw_data):
+def format_latex_standalone(figure, raw_data):
     return TEMPLATE_TIKZ_DOC.format(
             appname=os.path.basename(__file__),
             appversion=VERSION,
@@ -486,11 +481,11 @@ def tikz_standalone(figure, raw_data):
                           for x in raw_data.strip().split("\n")))
 
 
-def latex_print_table(line, label, table_type=1):
+def format_latex_table(line, label, table_type=1):
     """Print a single table from a relation-config-line"""
 
     if line['type'] not in ['relation', 'relation-table']:
-        print_error_msg("Latex Print Table: Provided config-line has wrong " \
+        raise_error("Latex Print Table: Provided config-line has wrong " \
                         "type '%s' (type 'relation' expected)" % line['type'])
 
     # We skip the first element inside a table. It is the header.
@@ -521,11 +516,17 @@ def latex_print_table(line, label, table_type=1):
                 relation=line['name'])
 
 
-def latex_print_combine(table_str, tikz_str, caption, label):
+def format_latex_figure_and_table(table_str, tikz_str, caption, label):
     return TEMPLATE_LATEX_TIKZTABLE.format(table=table_str,
                                            tikzpicture=tikz_str,
                                            caption=caption,
                                            label=label)
+
+# STATES of the tokenizer, which is implemented as a state machine...
+STATE_OUTSIDE = 0        # We have not found a table yet
+STATE_HEADER = 1         # We have found a table STATE_HEADER (attribute names)
+STATE_TUPLES = 2         # We have already parsed the table header, and are
+                         # reading in tuples now
 
 TEMPLATE_TIKZ_DOC = r"""
 % This file has been automatically generated by...
