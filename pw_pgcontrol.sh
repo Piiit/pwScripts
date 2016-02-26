@@ -125,7 +125,7 @@ function callPsql {
 # indicate it has a required argument, and by two colons to indicate it has
 # an optional argument.
 ARGS=$(
-	getopt -q -o "hisrtTSIc:l:p:mx" \
+	getopt -q -o "hisrt:T:SIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
 	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,make,
 	restartclean,regressiontest:,configure,patchcreatetestonly:,execute:" \
@@ -148,7 +148,7 @@ while true; do
 			showHelp
 		;;
 		-i | --info)
-		    showConfig
+		    showConfig 
 		    exit 0
 		;;
 		-s | --start)
@@ -267,7 +267,8 @@ while true; do
 			patch -p0 < $3
 			exit $?
 		;;
-		-x | --restartclean )
+		-x | --restartclean | -m | --make )
+		
 			# Remove logfile, restart server and show log constantly...
 			test -z $LOG && {
 				showError "LOG not set in INI file $INI."
@@ -279,39 +280,17 @@ while true; do
 				exit 1
 			}
 
-			callPgCtl restart $DATA $PORT $LOG
-
-			if test $? -ne 0; then
-				exit $?
-			fi
-
-			# Wait until log file exists, i.e. server has been started...
-			while [ ! -f $LOG ]
-			do
-				echo -n -e "\rWaiting for PostgreSQL server to start up..."
-			done
-
-			clear
-			tail -f $LOG
-
-			exit 0
-		;;
-		-m | --make )
-			test -z $LOG && {
-				showError "LOG not set in INI file $INI."
-				exit 1
+			test "$1" = "-m" || test "$1" == "--make" && {
+				make && make install || {
+					showError "make or make install failed with error-code $?"
+					exit 1
+				}
 			}
 
-			rm -f $LOG || {
-				showError "Can not remove LOG file $LOG."
-				exit 1
-			}
-
-			make && make install && callPgCtl restart $DATA $PORT $LOG
-
-			if test $? -ne 0; then
+			# Server restart
+			callPgCtl restart $DATA $PORT $LOG || {
 				exit $?
-			fi
+			}
 
 			# Wait until log file exists, i.e. server has been started...
 			while [ ! -f $LOG ]
