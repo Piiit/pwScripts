@@ -59,6 +59,8 @@ For example
 
 Changelog
 ---------
+  0.4.1
+      - BUGFIX: captions are no longer truncated if a comma is found
   0.4
       - config line added to provide "label" and "caption" to LaTex
       - command line arguments (see usage output for details; i.e., --help)
@@ -85,7 +87,7 @@ import stat
 import sys
 import argparse
 
-VERSION = 0.4
+__version__ = 0.4.1
 
 def main():
     """Main, nothing more to say :-)"""
@@ -190,6 +192,7 @@ def main():
             table_type = 1
             if args.output_type == 'all':
                 table_type = 2
+
             for line in parse_result:
                 if line['type'] == 'relation-table':
                     table += format_latex_table(line, "", table_type)
@@ -213,6 +216,8 @@ def main():
                     "File '%s' already exists! Exiting..." % args.output)
             outfile = open(args.output, 'w')
 
+        outfile.write(format_latex_header("".join(input_text)))
+
         if args.output_type == 'all':
             outfile.write(format_latex_figure_and_table(table,
                                       figure,
@@ -223,7 +228,7 @@ def main():
         elif args.output_type == 'figure-only':
             outfile.write(figure)
         elif args.output_type == 'figure-standalone':
-            outfile.write(format_latex_standalone(figure, "".join(input_text)))
+            outfile.write(format_latex_standalone(figure))
         else:
             raise_error(
                 "Unknown output type specified")
@@ -275,7 +280,7 @@ def raise_error(msg, hint=""):
     automatically indented behind "ERROR: " and "HINT : " strings."""
     if hint != "":
         hint = "HINT : " + hint
-    raise ValueError("ERROR: " + msg, hint)
+    raise ValueError("ERROR: " + os.path.basename(__file__) + ": " + msg, hint)
 
 def pgsql_tokenizer(lines):
     """We parse the input lines with a simple state machine, and generate a
@@ -353,15 +358,20 @@ def pgsql_parser(text):
 
     for token in pgsql_tokenizer(text):
         if token[0] == 'COMMENT':
-            match = re.search(r'TIKZ:\s(.*)+?', token[1])
+            match = re.search(r'TIKZ:\s*([a-z\-]+?)\s*,\s*(.*)+?', token[1])
             if match:
-                listitems = re.split(r'\s*,\s*', match.group(1))
-                if listitems[0] == 'config':
+                comment_type = match.group(1)
+                comment_body = match.group(2)
+                if comment_type == 'config':
+                    listitems = [comment_type] + re.split(r'\s*,\s*',
+                                                          comment_body, 2)
                     configs.append(
                         dict(zip(['type',
                                   'label',
                                   'caption'], listitems)))
-                elif listitems[0] in ['relation', 'relation-table']:
+                elif comment_type in ['relation', 'relation-table']:
+                    listitems = [comment_type] + re.split(r'\s*,\s*',
+                                                          comment_body, 4)
                     configs_count_relation += 1
                     configs.append(
                         dict(zip(['type',
@@ -369,7 +379,7 @@ def pgsql_parser(text):
                                   'ts',
                                   'te',
                                   'desc'], listitems)))
-                elif listitems[0] == 'timeline':
+                elif comment_type == 'timeline':
                     if configs_count_timeline == 1:
                         raise_error(
                             "More than one TIKZ timeline string found",
@@ -378,6 +388,8 @@ def pgsql_parser(text):
                             "-- TIKZ: timeline, from, to, time line " +
                             "description")
                     else:
+                        listitems = [comment_type] + re.split(r'\s*,\s*',
+                                                              comment_body, 3)
                         configs_count_timeline += 1
                         configs.append(
                             dict(zip(['type',
@@ -472,13 +484,15 @@ def format_tikz_figure(parse_result):
 
     return TEMPLATE_TIKZ_PICTURE.format(content=out)
 
-def format_latex_standalone(figure, raw_data):
-    return TEMPLATE_TIKZ_DOC.format(
-            appname=os.path.basename(__file__),
-            appversion=VERSION,
-            tikzpicture=figure,
-            input="".join("%% %s\n" % x
-                          for x in raw_data.strip().split("\n")))
+def format_latex_header(raw_data):
+    return TEMPLATE_HEADER.format(
+                appname=os.path.basename(__file__),
+                appversion=__version__,
+                input="".join("%% %s\n" % x
+                              for x in raw_data.strip().split("\n")))
+
+def format_latex_standalone(figure):
+    return TEMPLATE_TIKZ_DOC.format(tikzpicture=figure)
 
 
 def format_latex_table(line, label, table_type=1):
@@ -496,7 +510,7 @@ def format_latex_table(line, label, table_type=1):
     attribs = r" & ".join(header)
     rows = ""
     for row_count, row in enumerate(tuples, 1):
-        rows += " " * 12 + "$%s_%d$ & %s \\\\\n" % (line['name'],
+        rows += " " * 12 + "$%s_{%d}$ & %s \\\\\n" % (line['name'],
                                          row_count,
                                          r" & ".join(row))
 
@@ -528,15 +542,17 @@ STATE_HEADER = 1         # We have found a table STATE_HEADER (attribute names)
 STATE_TUPLES = 2         # We have already parsed the table header, and are
                          # reading in tuples now
 
-TEMPLATE_TIKZ_DOC = r"""
-% This file has been automatically generated by...
+TEMPLATE_HEADER = r"""% This file has been automatically generated by...
 %
 % {appname} v{appversion} written by Peter Moser <pitiz29a@gmail.com>
+% Source code can be found under: https://github.com/Piiit/pwScripts
 %
 % From input:
 % _______________________________________________________________INPUT-START__
 {input}% _______________________________________________________________INPUT-END____
+"""
 
+TEMPLATE_TIKZ_DOC = r"""
 \documentclass{{standalone}}
 \usepackage{{tikz}}
 \usetikzlibrary{{

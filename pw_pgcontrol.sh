@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# This script controls PostgreSQL servers, clients, and build processes.
-# Some information have been taken from:
-# http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
+__DOC__="
+This script controls PostgreSQL servers, clients, and build processes.
+Some information have been taken from:
+http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
+"
 
 SCRIPTNAME=${0##*/}
 INI=.pw_pgcontrol.ini
@@ -52,6 +54,7 @@ function showHelp {
 	echo "                       |displays server's log file"
 	echo " -x, --restartclean    |Remove logfile, restart server and output log constantly"
 	echo "     --configure       |Run configure with default parameters"
+	echo "     --testinitdb      |Tests to initialize a temporary database"
 	echo
 	echo "CONFIG:"
 	showConfig
@@ -62,15 +65,14 @@ function showHelp {
 
 function showError {
 	echo "$SCRIPTNAME: ERROR: $1" >&2
-	echo >&2
-	showHelp >&2
+	exit 1
 }
 
 # Fetch environment information about the PostgreSQL installation
 function loadINI {
 	test -f $INI && . $INI || {
 		showError "No evironment INI file found. Have you specified PostgreSQL configs in $INI?"
-		return 1
+		exit 1
 	}
 
 	# Build dir default setting, if not set inside the INI-file...
@@ -82,7 +84,6 @@ function loadINI {
 function checkArguments {
 	if test $1 -lt $2; then
         showError "$3"
-		exit 1
 	fi
 }
 
@@ -128,25 +129,27 @@ ARGS=$(
 	getopt -q -o "hisrt:T:SIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
 	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,make,
-	restartclean,regressiontest:,configure,patchcreatetestonly:,execute:" \
+	restartclean,regressiontest:,configure,patchcreatetestonly:,execute:,
+	testinitdb" \
 	-n $SCRIPTNAME -- "$@"
 )
 
 if [ $? != 0 ] ; then
 	showError "Wrong argument given: $@"
-	exit 1
 fi
 
 eval set -- "$ARGS"
 
-loadINI || showHelp
+test "$1" == "-h" || test "$1" == "--help" && {
+	showHelp
+	exit 0
+}
+
+loadINI
 
 CMD=
 while true; do
 	case "$1" in
-		-h | --help)
-			showHelp
-		;;
 		-i | --info)
 		    showConfig 
 		    exit 0
@@ -272,18 +275,15 @@ while true; do
 			# Remove logfile, restart server and show log constantly...
 			test -z $LOG && {
 				showError "LOG not set in INI file $INI."
-				exit 1
 			}
 
 			rm -f $LOG || {
 				showError "Can not remove LOG file $LOG."
-				exit 1
 			}
 
 			test "$1" = "-m" || test "$1" == "--make" && {
 				make && make install || {
 					showError "make or make install failed with error-code $?"
-					exit 1
 				}
 			}
 
@@ -323,7 +323,6 @@ while true; do
 		;;
 		*)
 		    showError "OPTION '$1' does not exist."
-		    exit 1
 		;;
 	esac
 done
@@ -332,5 +331,3 @@ done
 
 # We should not reach this line!
 showError "No parameter specified"
-
-exit 1
