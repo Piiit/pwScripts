@@ -28,12 +28,16 @@ TIKZ-comment syntax
 -------------------
 First argument after "TIKZ: " is the type of drawing. The following lines
 describe which types are supported:
-  1) -- TIKZ: relation, [abbrev], start column, end column, description
-     The abbreviation is optional (it is used for tuple names).
+  1) -- TIKZ: relation[-table], [abbrev], start column, end column, description
+     If you put "relation-table" as drawing-type, a table and a diagram will be
+     printed.
+     The abbreviation is optional (it is used for tuple names). If you want to
+     suppress it, do not forget to put the comma separator anyway.
   2) -- TIKZ: timeline, from, to, description
-  3) -- TIKZ: config, label, caption
-     The label and caption of this line is used for the combined table/figure
-     picture, or for the standalone tikzpicture file.
+  3) -- TIKZ: config, key, value
+     The key and value of this line is used for the combined table/figure
+     picture, or for the standalone tikzpicture file. You can configure the
+     label and caption of figures for instance.
 
 
 For example
@@ -56,9 +60,17 @@ For example
 
    -- TIKZ: timeline, 0, 10, time
 
+   -- You can refer to this figure with \ref{fig:input001}
+   -- TIKZ: config, label, input001
+   -- TIKZ: config, caption, Input relations \textbf{r} and \textbf{s}
+
 
 Changelog
 ---------
+  0.5
+      - TIKZ-config lines are now key/value pairs
+      - Additional config parameters to tweak the TEX output, i.e., subfigure
+        column widths
   0.4.1
       - BUGFIX: captions are no longer truncated if a comma is found
   0.4
@@ -87,7 +99,7 @@ import stat
 import sys
 import argparse
 
-__version__ = "0.4.1"
+__version__ = "0.5"
 
 def main():
     """Main, nothing more to say :-)"""
@@ -183,7 +195,7 @@ def main():
 
         figure = ""
         table = ""
-        cfg = []
+        cfg = {}
 
         if args.output_type in ['all', 'figure-standalone', 'figure-only']:
             figure = format_tikz_figure(parse_result)
@@ -197,18 +209,23 @@ def main():
                 if line['type'] == 'relation-table':
                     table += format_latex_table(line, "", table_type)
                 if line['type'] == 'config':
-                    cfg = line
+                    cfg[line['key']] = line['value']
 
         # If we print the whole figure/table combination, we need a "label" and
         # "caption" below the two sub-figures.
-        if args.output_type == 'all' and cfg == []:
-            raise_error(
-                "No config line found! We do not know which 'label' and "
-                "'caption' to use for figures.",
-                "Define a configuration string of type 'config'.\n"
-                "For example:\n"
-                "-- TIKZ: config, label, caption")
+        if args.output_type == 'all':
+            if not cfg.has_key('label'):
+                raise_error_cfgline(
+                    'label',
+                    "We do not know which 'label' to use for figures.")
 
+            if not cfg.has_key('caption'):
+                raise_error_cfgline(
+                    'caption',
+                    "We do not know which 'caption' to use for figures.")
+
+        # TODO Create text first in memory, and write it at last. Otherwise, we
+        # could get half-made output files, when an error has
         outfile = sys.stdout
         if args.output != None:
             if os.path.isfile(args.output):
@@ -219,10 +236,22 @@ def main():
         outfile.write(format_latex_header("".join(input_text)))
 
         if args.output_type == 'all':
+
+            # Subfigures have a left and right column with a certain width
+            # If it is not configured explicitely, we will take these defaults:
+            subfigure_left = 0.27
+            subfigure_right = 0.63
+            if cfg.has_key('subfigure-left'):
+                subfigure_left = cfg['subfigure-left']
+            if cfg.has_key('subfigure-right'):
+                subfigure_right = cfg['subfigure-right']
+
             outfile.write(format_latex_figure_and_table(table,
                                       figure,
                                       cfg['caption'],
-                                      cfg['label']))
+                                      cfg['label'],
+                                      subfigure_left,
+                                      subfigure_right))
         elif args.output_type == 'table-only':
             outfile.write(table)
         elif args.output_type == 'figure-only':
@@ -281,6 +310,15 @@ def raise_error(msg, hint=""):
     if hint != "":
         hint = "HINT : " + hint
     raise ValueError("ERROR: " + os.path.basename(__file__) + ": " + msg, hint)
+
+def raise_error_cfgline(key, msg):
+    """Print an error message like raise_error, but for TIKZ: config, ...
+    lines. """
+    raise_error(
+        "No config line with key '" + key + "' found!\n" + msg,
+        "Define a configuration string of type 'config' and key '" + key + "'\n"
+        "For example:\n"
+        "-- TIKZ: config, " + key + ", value")
 
 def pgsql_tokenizer(lines):
     """We parse the input lines with a simple state machine, and generate a
@@ -375,8 +413,8 @@ def pgsql_parser(text):
                                                           comment_body, 1)
                     configs.append(
                         dict(zip(['type',
-                                  'label',
-                                  'caption'], listitems)))
+                                  'key',
+                                  'value'], listitems)))
                 elif comment_type in ['relation', 'relation-table']:
                     listitems = [comment_type] + re.split(r'\s*,\s*',
                                                           comment_body, 3)
@@ -487,7 +525,7 @@ def format_tikz_figure(parse_result):
 
         # Print description on the left-hand-side of each relation
         if line['desc'].strip() != "":
-            out += format_tikz_desc(posy - len(line['table']) / 2 + 0.5,
+            out += format_tikz_desc(posy - (len(line['table']) - 1) / 2,
                                    line['desc'])
 
         # We skip the first element inside a table. It is the header.
@@ -503,6 +541,8 @@ def format_tikz_figure(parse_result):
     return TEMPLATE_TIKZ_PICTURE.format(content=out)
 
 def format_latex_header(raw_data):
+    """Prints a TEX comment header including a version, this app's name, and
+    the input text."""
     return TEMPLATE_HEADER.format(
                 appname=os.path.basename(__file__),
                 appversion=__version__,
@@ -510,6 +550,7 @@ def format_latex_header(raw_data):
                               for x in raw_data.strip().split("\n")))
 
 def format_latex_standalone(figure):
+    """Creates a TIKZ standalone latex document"""
     return TEMPLATE_TIKZ_DOC.format(tikzpicture=figure)
 
 
@@ -548,11 +589,19 @@ def format_latex_table(line, label, table_type=1):
                 relation=line['name'])
 
 
-def format_latex_figure_and_table(table_str, tikz_str, caption, label):
+def format_latex_figure_and_table(table_str,
+                                  tikz_str,
+                                  caption,
+                                  label,
+                                  subfigure_left,
+                                  subfigure_right):
+    """Prints a figure and a table side-by-side as sub-figures"""
     return TEMPLATE_LATEX_TIKZTABLE.format(table=table_str,
                                            tikzpicture=tikz_str,
                                            caption=caption,
-                                           label=label)
+                                           label=label,
+                                           subfigureleft=subfigure_left,
+                                           subfigureright=subfigure_right)
 
 # STATES of the tokenizer, which is implemented as a state machine...
 STATE_OUTSIDE = 0        # We have not found a table yet
@@ -646,11 +695,11 @@ TEMPLATE_LATEX_TIKZTABLE = r"""
 \begin{{figure}}[!ht]
     \centering
     \hfill
-    \begin{{subfigure}}[c]{{0.27\textwidth}}
+    \begin{{subfigure}}[c]{{{subfigureleft}\textwidth}}
 {table}
     \end{{subfigure}}
     \hspace{{10pt}}
-    \begin{{subfigure}}[c]{{0.63\textwidth}}
+    \begin{{subfigure}}[c]{{{subfigureright}\textwidth}}
 {tikzpicture}
     \end{{subfigure}}
     \caption{{{caption}}}
