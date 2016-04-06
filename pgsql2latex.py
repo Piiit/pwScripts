@@ -87,7 +87,7 @@ import stat
 import sys
 import argparse
 
-__version__ = 0.4.1
+__version__ = "0.4.1"
 
 def main():
     """Main, nothing more to say :-)"""
@@ -357,21 +357,29 @@ def pgsql_parser(text):
     configs_count_timeline = 0
 
     for token in pgsql_tokenizer(text):
+
+        # First, search for a TIKZ comment line, which looks as follows:
+        # -TIKZ: name, config-list-comma-separated
+        # Depending on "name" we get a different number of parameters in
+        # "config-list-comma-separated". The last entry therein is either
+        # a description or a caption, which can contain commas which will
+        # be kept.
         if token[0] == 'COMMENT':
             match = re.search(r'TIKZ:\s*([a-z\-]+?)\s*,\s*(.*)+?', token[1])
             if match:
                 comment_type = match.group(1)
                 comment_body = match.group(2)
+
                 if comment_type == 'config':
                     listitems = [comment_type] + re.split(r'\s*,\s*',
-                                                          comment_body, 2)
+                                                          comment_body, 1)
                     configs.append(
                         dict(zip(['type',
                                   'label',
                                   'caption'], listitems)))
                 elif comment_type in ['relation', 'relation-table']:
                     listitems = [comment_type] + re.split(r'\s*,\s*',
-                                                          comment_body, 4)
+                                                          comment_body, 3)
                     configs_count_relation += 1
                     configs.append(
                         dict(zip(['type',
@@ -389,7 +397,7 @@ def pgsql_parser(text):
                             "description")
                     else:
                         listitems = [comment_type] + re.split(r'\s*,\s*',
-                                                              comment_body, 3)
+                                                              comment_body, 2)
                         configs_count_timeline += 1
                         configs.append(
                             dict(zip(['type',
@@ -406,10 +414,20 @@ def pgsql_parser(text):
         raise_error(
             "No tables found! Is this a valid input file?")
 
-    if configs_count_relation != len(tables):
+    # The amount of relation config strings and table outputs must match!
+    if configs_count_relation < len(tables):
         raise_error(
             "We do not have enough TIKZ relation config strings",
             "Define a configuration string for each table.\n" +
+            "For example:\n" +
+            "-- TIKZ: relation, table_name, ts, te, relation description")
+
+    if configs_count_relation > len(tables):
+        raise_error(
+            "We do not have enough table outputs compared to the amount of " +
+            "TIKZ relation config strings",
+            "Either delete a configuration string for a table, or provide\n" +
+            "an additional SQL-command to produce a table output.\n" +
             "For example:\n" +
             "-- TIKZ: relation, table_name, ts, te, relation description")
 
