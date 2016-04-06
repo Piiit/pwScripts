@@ -13,7 +13,7 @@ Reads an PostgreSQL (psql --echo-all, see man-page of psql for further details)
 output, and creates a standalone TIKZ tex-figure, or combined table/figure
 LaTex file to be used with \input{filename}. To configure each output
 table or timeline a SQL comment starting with "TIKZ:" must be provided. In
-addtion this script needs the following prerequisites for the input:
+addition this script needs the following prerequisites for the input:
   1) There must be at least 2 columns for VALID TIME for each table
   2) Each relation must have a TIKZ config line as SQL comment (see below)
   3) A single timeline can be defined with "TIKZ: timeline, from, to, desc"
@@ -46,7 +46,7 @@ describe which types are supported:
      caption            TEX figure caption
      subfigure-left     left subfigure column's width
      subfigure-right    right subfigure column's width. Both subfigure widths
-                        should sum up to 0.9 (0.1 space in between in fixed).
+                        should sum up to 0.9 (0.1 space in between is fixed).
                         However, I keep it configurable in order to not be too
                         restrictive.
 
@@ -127,7 +127,8 @@ def main():
         'FILE',
         default='-',
         type=argparse.FileType('r'),
-        help='Input files taken from the "psql --echo-all" output')
+        help='Input files taken from the "psql --echo-all" output\n'
+             'Use a dash, i.e. -, if you want to use STDIN.')
 
     parser.add_argument(
         '-o',
