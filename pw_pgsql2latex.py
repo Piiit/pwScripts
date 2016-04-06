@@ -39,6 +39,17 @@ describe which types are supported:
      picture, or for the standalone tikzpicture file. You can configure the
      label and caption of figures for instance.
 
+     Possible configurations by key/value:
+     key                value
+     ------------------------------------------------------------------------
+     label              TEX label \label
+     caption            TEX figure caption
+     subfigure-left     left subfigure column's width
+     subfigure-right    right subfigure column's width. Both subfigure widths
+                        should sum up to 0.9 (0.1 space in between in fixed).
+                        However, I keep it configurable in order to not be too
+                        restrictive.
+
 
 For example
 -----------
