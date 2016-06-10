@@ -184,7 +184,7 @@ while true; do
 			checkArguments $# 4 "--test DB FILE: no database name or test-file specified!"
 			PGOPTIONS='--client-min-messages=warning' $BUILD/bin/psql -p $PORT \
 				-h localhost -X -a -q -1 -v ON_ERROR_STOP=1 --pset pager=off \
-				-d $2 -f $4 2>&1
+				-d $2 -f $4
 			exit $?
 		;;
 		--regressiontest)
@@ -194,7 +194,7 @@ while true; do
 			checkArguments $# 4 "--regressiontest DB FILE: no database name or test-file specified!"
 			PGOPTIONS='--client-min-messages=warning' $BUILD/bin/psql -p $PORT \
 				-h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off \
-				-d $2 < $4 2>&1
+				-d $2 < $4
 			exit $?
 		;;
 		-T | --testall)

@@ -35,4 +35,5 @@ SELECT * FROM (r ALIGN s ON r.a = s.a WITH (ts,te,ts,te)) AS c;
  G |  8 | 10
 (9 rows)
 
--- TIKZ: config, label0001, test text with {asdf asdf asdf} \bfseries x
+-- TIKZ: config, label, label0001
+-- TIKZ: config, caption, test text with {asdf asdf asdf} \bfseries x

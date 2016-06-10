@@ -5,18 +5,32 @@
 
 # Author: Peter Moser <pitiz29a@gmail.com)
 
-r"""TIKZ IMAGE GENERATOR FOR TIMELINE AND TEMPORAL TUPLES
+r"""## LaTex table and image generator for timelines and temporal tables
+
+Generate LaTex and TIKZ files from PostgreSQL's `psql` command output
+
+![Screenshot of Latex document](https://github.com/Piiit/pwScripts/blob/master/res/pgsql2latex-screen01.jpg)
+
+
+Download
+--------
+ * [pw_pgsql2latex.py](https://github.com/Piiit/pwScripts/blob/master/pw_pgsql2latex.py)
+
+
+Usage
+-----
+(automatically printed from `argparse` module)
 
 Introduction
 ------------
-Reads an PostgreSQL (psql --echo-all, see man-page of psql for further details)
-output, and creates a standalone TIKZ tex-figure, or combined table/figure
-LaTex file to be used with \input{filename}. To configure each output
-table or timeline a SQL comment starting with "TIKZ:" must be provided. In
-addition this script needs the following prerequisites for the input:
-  1) There must be at least 2 columns for VALID TIME for each table
-  2) Each relation must have a TIKZ config line as SQL comment (see below)
-  3) A single timeline can be defined with "TIKZ: timeline, from, to, desc"
+Reads an PostgreSQL (`psql --echo-all`, see man-page of psql for further
+details) output, and creates a standalone TIKZ tex-figure, or combined
+table/figure LaTex file to be used with `\input{filename}`. To configure each
+output table or timeline a SQL comment starting with `TIKZ:` must be provided.
+In addition this script needs the following prerequisites for the input:
+  1. There must be at least 2 columns for VALID TIME for each table
+  2. Each relation must have a TIKZ config line as SQL comment (see below)
+  3. A single timeline can be defined with `TIKZ: timeline, from, to, desc`
      This is optional.
 
 We do not use some Python PostgreSQL libs here, because TEMPORAL OPERATORS are
@@ -26,19 +40,21 @@ if we do not have a (TEMPORAL) POSTGRESQL instance running.
 
 TIKZ-comment syntax
 -------------------
-First argument after "TIKZ: " is the type of drawing. The following lines
+First argument after `TIKZ:` is the type of drawing. The following lines
 describe which types are supported:
-  1) -- TIKZ: relation[-table], [abbrev], start column, end column, description
-     If you put "relation-table" as drawing-type, a table and a diagram will be
+  1. `-- TIKZ: relation[-table], [abbrev], start column, end column,
+     description` <br>
+     If you put `relation-table` as drawing-type, a table and a diagram will be
      printed.
      The abbreviation is optional (it is used for tuple names). If you want to
      suppress it, do not forget to put the comma separator anyway.
-  2) -- TIKZ: timeline, from, to, description
-  3) -- TIKZ: config, key, value
+  2. `-- TIKZ: timeline, from, to, description`
+  3. `-- TIKZ: config, key, value` <br>
      The key and value of this line is used for the combined table/figure
      picture, or for the standalone tikzpicture file. You can configure the
      label and caption of figures for instance.
 
+```
      Possible configurations by key/value:
      key                value
      ------------------------------------------------------------------------
@@ -49,10 +65,22 @@ describe which types are supported:
                         should sum up to 0.9 (0.1 space in between is fixed).
                         However, I keep it configurable in order to not be too
                         restrictive.
+```
 
-
-For example
------------
+Example
+-------
+If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
+```
+   -- TIKZ: relation, r, ts, te, Input relation r
+   TABLE r;
+   -- TIKZ: relation, s, ts, te, Input relation s
+   SELECT * FROM s WHERE a='B';
+   -- TIKZ: timeline, 0, 10, time
+   -- TIKZ: config, figure01, This is a caption (latex-syntax possible)
+```
+...then you get the following output, which serves as input to
+ **pw_pgsql2latex.py**.
+```
    -- TIKZ: relation, r, ts, te, Input relation r
    TABLE r;
     a | ts | te
@@ -74,34 +102,41 @@ For example
    -- You can refer to this figure with \ref{fig:input001}
    -- TIKZ: config, label, input001
    -- TIKZ: config, caption, Input relations \textbf{r} and \textbf{s}
+```
 
+The full piped command is then: `psql -a -d DBNAME -f FILENAME |
+pgsql2latex.py -o OUTPUTFILE -`.
+To use the `OUTPUTFILE` inside a LaTex document, just add a input-command
+ `\input{OUTPUTFILE}`.
 
 Changelog
 ---------
-  0.5
+  * 0.5
       - TIKZ-config lines are now key/value pairs
       - Additional config parameters to tweak the TEX output, i.e., subfigure
         column widths
-  0.4.1
+  * 0.4.1
       - BUGFIX: captions are no longer truncated if a comma is found
-  0.4
+  * 0.4
       - config line added to provide "label" and "caption" to LaTex
-      - command line arguments (see usage output for details; i.e., --help)
-  0.3
+      - command line arguments (see usage output for details; i.e., `--help`)
+  * 0.3
       - Parser becomes a generator (i.e., we use yield)
       - Parser simplified, returns only tokens to reuse it later for other
         projects
       - String formatting unified
-  0.2
-      - Reads configs from SQL comments with prefix "-- TIKZ"
+  * 0.2
+      - Reads configs from SQL comments with prefix `-- TIKZ`
       - Checks if TIKZ configs and data input matches
       - Different string formatting techniques tested (just for fun!)
       - Skips SQL commands
       - pylint errors and warnings fixed (most)
-  0.1
+  * 0.1
       - Creates a standalone tikz picture from a PostgreSQL output
       - Skips comments and empty lines
       - Restriction: Hard-coded configuration
+
+
 """
 
 import re
@@ -178,8 +213,23 @@ def main():
     # with an error (There is no meaningful exception to catch, except for
     # SystemExit).
     if len(sys.argv) == 2 and sys.argv[1] == '--manual':
-        print __doc__
+
+        docparts = __doc__.split(
+            "Usage\n-----\n(automatically printed from `argparse` module)\n",
+            1)
+
+        # Print title and section before "usage"
+        print docparts[0]
+
+        # Print usage information
+        sys.stdout.write("Usage\n-----\n```\n")
         parser.print_help()
+        print "```"
+
+        # Print the rest
+        #print "\n".join(__doc__.split('\n', 1)[1:])
+        print docparts[1]
+
         sys.exit(0)
 
     # No parse regular command line arguments
