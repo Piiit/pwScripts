@@ -1,7 +1,6 @@
 #!/bin/bash
 
 set -euo pipefail
-IFS=$'\n\t'
 
 SCRIPTNAME=${0##*/}
 
@@ -20,8 +19,8 @@ Example setup for this script:
 
 export PW_PGC_PORT=5112
 export PW_PGC_LOG=/tmp/postgresql-temporal-serverlog
-export PW_PGC_DATA=\$PWD/projects/tpg-source/data
-export PW_PGC_BUILD=\$PWD/projects/tpg-source/server
+export PW_PGC_DATA=~/projects/tpg-source/data
+export PW_PGC_BUILD=~/projects/tpg-source/server
 "
 
 # All output should be in English
@@ -82,7 +81,6 @@ function showHelp {
 	echo
 	echo "CONFIG:"
 	showConfig
-
 
 	exit 0
 }
@@ -171,6 +169,8 @@ test "$1" == "--manual" && {
 	showHelp
 	exit 0
 }
+
+loadINI
 
 CMD=
 while true; do
