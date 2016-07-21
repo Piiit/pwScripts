@@ -9,6 +9,9 @@ http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
 SCRIPTNAME=${0##*/}
 INI=.pw_pgcontrol.ini
 
+# All output should be in English
+export LC_ALL=C
+
 function showConfig {
 	echo "  Port: $PORT"
 	echo "  Log : $LOG"
@@ -126,14 +129,14 @@ function callPsql {
 # indicate it has a required argument, and by two colons to indicate it has
 # an optional argument.
 ARGS=$(
-	getopt -q -o "hisrt:T:SIc:l:p:mx" \
+	getopt -o "hisrt:T:SIc:l:p:mx" \
 	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
 	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,make,
 	restartclean,regressiontest:,configure,patchcreatetestonly:,execute:,
 	testinitdb" \
 	-n $SCRIPTNAME -- "$@"
 )
-
+#2>/tmp/pw_pgcontrol.sh_getopt$$
 if [ $? != 0 ] ; then
 	showError "Wrong argument given: $@"
 fi
@@ -151,7 +154,7 @@ CMD=
 while true; do
 	case "$1" in
 		-i | --info)
-		    showConfig 
+		    showConfig
 		    exit 0
 		;;
 		-s | --start)
@@ -194,7 +197,7 @@ while true; do
 			checkArguments $# 4 "--regressiontest DB FILE: no database name or test-file specified!"
 			PGOPTIONS='--client-min-messages=warning' $BUILD/bin/psql -p $PORT \
 				-h localhost -X -a -q -v ON_ERROR_STOP=0 --pset pager=off \
-				-d $2 < $4
+				-d $2 < $4 2>&1
 			exit $?
 		;;
 		-T | --testall)
@@ -271,7 +274,7 @@ while true; do
 			exit $?
 		;;
 		-x | --restartclean | -m | --make )
-		
+
 			# Remove logfile, restart server and show log constantly...
 			test -z $LOG && {
 				showError "LOG not set in INI file $INI."
