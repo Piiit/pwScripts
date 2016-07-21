@@ -1,21 +1,37 @@
 #!/bin/bash
 
-__DOC__="
-This script controls PostgreSQL servers, clients, and build processes.
-Some information have been taken from:
-http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
-"
+set -euo pipefail
+IFS=$'\n\t'
 
 SCRIPTNAME=${0##*/}
-INI=.pw_pgcontrol.ini
+
+
+__DOC__="
+================================================================================
+                         $SCRIPTNAME  MANUAL
+================================================================================
+
+This script controls PostgreSQL servers, clients, and build processes.
+
+Some information have been taken from:
+http://petereisentraut.blogspot.it/2010/03/running-sql-scripts-with-psql.html
+
+Example setup for this script:
+
+export PW_PGC_PORT=5112
+export PW_PGC_LOG=/tmp/postgresql-temporal-serverlog
+export PW_PGC_DATA=\$PWD/projects/tpg-source/data
+export PW_PGC_BUILD=\$PWD/projects/tpg-source/server
+"
 
 # All output should be in English
 export LC_ALL=C
 
 function showConfig {
-	echo "  Port: $PORT"
-	echo "  Log : $LOG"
-	echo "  Data: $DATA"
+	loadINI
+	echo "  Port  : $PORT"
+	echo "  Log   : $LOG"
+	echo "  Data  : $DATA"
 	echo "  Build : $BUILD"
 }
 
@@ -26,12 +42,14 @@ function showHelp {
 	echo
 	echo "OPTIONS:"
 	echo " -h, --help            |Show this help message"
+	echo "     --manual          |Show the manual of this command"
 	echo " -i, --info            |Show configuration for current directory"
 	echo " -s, --start           |Start the PostgreSQL Server"
 	echo " -S, --stop            |Stop the PostgreSQL Server"
 	echo " -r, --restart         |Restart the PostgreSQL Server"
 	echo "     --status          |Show the status of the PostgreSQL Server"
 	echo " -c, --createdb DB     |Create a database with name DB"
+	echo "     --dropdb DB		 |Drop a database with name DB"
 	echo " -I, --initdb          |Create a new PostgreSQL database cluster in \$DATA"
 	echo "                       |Change \$DATA in the ini-file"
 	echo " -t, --test DB FILE    |Test FILE with database DB (batch mode; single transaction; stop on error)"
@@ -59,9 +77,12 @@ function showHelp {
 	echo "     --configure       |Run configure with default parameters"
 	echo "     --testinitdb      |Tests to initialize a temporary database"
 	echo
+	echo " Note: Change environmental variables if you want to have a different"
+	echo " configuration. See \"$SCRIPTNAME --manual\" for details."
+	echo
 	echo "CONFIG:"
 	showConfig
-	echo "  > Note: Change configurations in '$INI' inside your PostgreSQL directory."
+
 
 	exit 0
 }
@@ -73,14 +94,10 @@ function showError {
 
 # Fetch environment information about the PostgreSQL installation
 function loadINI {
-	test -f $INI && . $INI || {
-		showError "No evironment INI file found. Have you specified PostgreSQL configs in $INI?"
-		exit 1
-	}
-
-	# Build dir default setting, if not set inside the INI-file...
-	test -z $BUILD && BUILD="./server"
-
+	PORT=$(printf "%s\n" "${PW_PGC_PORT:?You must set PW_PGC_PORT}")
+	DATA=$(printf "%s\n" "${PW_PGC_DATA:?You must set PW_PGC_DATA}")
+	LOG=$(printf "%s\n" "${PW_PGC_LOG:?You must set PW_PGC_LOG}")
+	BUILD=$(printf "%s\n" "${PW_PGC_BUILD:?You must set PW_PGC_BUILD}")
 	return 0
 }
 
@@ -130,10 +147,10 @@ function callPsql {
 # an optional argument.
 ARGS=$(
 	getopt -o "hisrt:T:SIc:l:p:mx" \
-	-l "help,info,start,stop,restart,status,initdb,createdb:,test:,testall:,
-	load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,make,
-	restartclean,regressiontest:,configure,patchcreatetestonly:,execute:,
-	testinitdb" \
+	-l "help,info,start,stop,restart,status,initdb,createdb:,dropdb:,test:,
+	testall:,load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,
+	make,restartclean,regressiontest:,configure,patchcreatetestonly:,execute:,
+	testinitdb,manual" \
 	-n $SCRIPTNAME -- "$@"
 )
 #2>/tmp/pw_pgcontrol.sh_getopt$$
@@ -148,7 +165,12 @@ test "$1" == "-h" || test "$1" == "--help" && {
 	exit 0
 }
 
-loadINI
+test "$1" == "--manual" && {
+	echo "$__DOC__"
+	echo
+	showHelp
+	exit 0
+}
 
 CMD=
 while true; do
@@ -176,6 +198,11 @@ while true; do
 		-c | --createdb)
 			checkArguments $# 2 "$1: no database name specified!"
 			$BUILD/bin/createdb -p $PORT -h localhost $2
+		    exit $?
+		;;
+		--dropdb)
+			checkArguments $# 2 "$1: no database name specified!"
+			$BUILD/bin/dropdb -p $PORT -h localhost $2
 		    exit $?
 		;;
 		-l | --load)
