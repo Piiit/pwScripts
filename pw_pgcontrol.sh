@@ -359,6 +359,7 @@ while true; do
 			exit 0
 		;;
 		--configure )
+			loadINI
 
 			# Disable all compile optimization techniques. Step-by-step
 			# debugging works better without.
