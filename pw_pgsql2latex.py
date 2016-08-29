@@ -232,7 +232,7 @@ def main():
 
         sys.exit(0)
 
-    # No parse regular command line arguments
+    # Now parse regular command line arguments
     args = parser.parse_args()
 
     # Stdin file stats to see if it is a pipe or redirection...

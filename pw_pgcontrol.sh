@@ -19,8 +19,8 @@ Example setup for this script:
 
 export PW_PGC_PORT=5112
 export PW_PGC_LOG=/tmp/postgresql-temporal-serverlog
-export PW_PGC_DATA=~/projects/tpg-source/data
-export PW_PGC_BUILD=~/projects/tpg-source/server
+export PW_PGC_DATA=~/projects/tpg/source/data
+export PW_PGC_BUILD=~/projects/tpg/source/server
 "
 
 # All output should be in English
@@ -81,6 +81,8 @@ OPTIONS:
   -x, --restartclean     Remove logfile, restart server and output log cont.
       --configure        Run configure with default parameters
       --testinitdb       Tests to initialize a temporary database
+      --archive			 Creates a tar.gz archive of the actual git HEAD in
+                         '$BUILD/postgresql-PGVERSION-temporal.tar.gz'
 
   Note: Change environmental variables if you want to have a different
   configuration. See \"$SCRIPTNAME --manual\" for details.
@@ -88,8 +90,8 @@ OPTIONS:
 EXAMPLE SETUP FOR THIS SCRIPT:
   export PW_PGC_PORT=5112
   export PW_PGC_LOG=/tmp/postgresql-temporal-serverlog
-  export PW_PGC_DATA=~/projects/tpg-source/data
-  export PW_PGC_BUILD=~/projects/tpg-source/server
+  export PW_PGC_DATA=~/projects/tpg/source/data
+  export PW_PGC_BUILD=~/projects/tpg/source/server
 "
 
 	exit 0
@@ -127,8 +129,8 @@ function checkArguments {
 function callPgCtl {
 	loadINI
 	L=""
-	test -n $4 && L="-l $4"
-	$BUILD/bin/pg_ctl $1 -D $2 $L -o "-p $3"
+	test -n $LOG && L="-l $LOG"
+	$BUILD/bin/pg_ctl $1 -D $DATA $L -o "-p $PORT"
 	return $?
 }
 
@@ -143,13 +145,13 @@ function callPgCtl {
 #   $4 - Additional parameters
 function callPsql {
 	loadINI
-	$BUILD/bin/psql -p $1 -h localhost -d $2 -f $3 $4
+	$BUILD/bin/psql -p $PORT -h localhost -d $DATA -f $PORT $LOG
 	return $?
 }
 
-##
+################################################################################
 ## MAIN
-##
+################################################################################
 
 # Handling of script arguments...
 # Each short option character in shortopts may be followed by one colon to
@@ -160,7 +162,7 @@ ARGS=$(
 	-l "help,info,start,stop,restart,status,initdb,createdb:,dropdb:,test:,
 	testall:,load:,psql:,csvout:,csvload:,comparetables:,patchcreate:,patch:,
 	make,restartclean,regressiontest:,configure,patchcreatetestonly:,execute:,
-	testinitdb,manual" \
+	testinitdb,manual,archive" \
 	-n $SCRIPTNAME -- "$@"
 )
 #2>/tmp/pw_pgcontrol.sh_getopt$$
@@ -190,19 +192,19 @@ while true; do
 		    exit 0
 		;;
 		-s | --start)
-			callPgCtl start $DATA $PORT $LOG
+			callPgCtl start
 			exit $?
 		;;
 		-r | --restart)
-			callPgCtl restart $DATA $PORT $LOG
+			callPgCtl restart
 			exit $?
 		;;
 		--status)
-			callPgCtl status $DATA $PORT $LOG
+			callPgCtl status
 			exit $?
 		;;
 		-S | --stop)
-			callPgCtl stop $DATA $PORT $LOG
+			callPgCtl stop
 			exit $?
 		;;
 		-c | --createdb)
@@ -219,7 +221,7 @@ while true; do
 		;;
 		-l | --load)
 			checkArguments $# 3 "$1: no database name and/or data-file specified!"
-			callPsql $PORT $2 $4
+			$BUILD/bin/psql -p $PORT -h localhost -d $2 -f $3
 			exit $?
 		;;
 		-t | --test)
@@ -370,6 +372,26 @@ while true; do
 				--enable-debug \
 				--enable-depend \
 				--enable-cassert
+
+			exit $?
+		;;
+		--archive )
+			loadINI
+
+			(
+				cd $BUILD/..
+				PGVERSION=$(grep -E "^VERSION = " src/Makefile.global | awk '{print $3}')
+				TARFILE=$BUILD/../postgresql-$PGVERSION-temporal.tar
+
+				git archive --format=tar HEAD -o $TARFILE
+
+				cd ../manual/
+				cp document.pdf temporal_postgresql_manual.pdf
+
+				# Update the archive: Add the manual...
+				tar -rvf $TARFILE temporal_postgresql_manual.pdf
+
+			)
 
 			exit $?
 		;;
