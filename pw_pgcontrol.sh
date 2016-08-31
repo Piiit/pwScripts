@@ -381,16 +381,25 @@ while true; do
 			(
 				cd $BUILD/..
 				PGVERSION=$(grep -E "^VERSION = " src/Makefile.global | awk '{print $3}')
-				TARFILE=$BUILD/../postgresql-$PGVERSION-temporal.tar
+				TARFILE=$(readlink -m $BUILD/../postgresql-$PGVERSION-temporal.tar)
 
-				git archive --format=tar HEAD -o $TARFILE
+				git archive --format=tar --prefix=source/ HEAD -o $TARFILE
 
-				cd ../manual/
-				cp document.pdf temporal_postgresql_manual.pdf
+				# Uncomment this lines, if you want to put the PDF manual too
+				#cd ../manual/
+				#cp document.pdf temporal_postgresql_manual.pdf
+				#tar -rvf $TARFILE temporal_postgresql_manual.pdf
 
-				# Update the archive: Add the manual...
-				tar -rvf $TARFILE temporal_postgresql_manual.pdf
+				cd ../docs/
+				tar -rvf $TARFILE \
+					install.txt \
+					examples.sql \
+					tpg_data.sql \
+					tpg_quickbuild.sh
 
+				gzip -f $TARFILE
+
+				echo "DONE! Archive can be found at '$TARFILE'..."
 			)
 
 			exit $?
