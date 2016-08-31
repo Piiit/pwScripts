@@ -82,7 +82,7 @@ OPTIONS:
       --configure        Run configure with default parameters
       --testinitdb       Tests to initialize a temporary database
       --archive			 Creates a tar.gz archive of the actual git HEAD in
-                         '$BUILD/postgresql-PGVERSION-temporal.tar.gz'
+                         '\$BUILD/postgresql-PGVERSION-temporal.tar.gz'
 
   Note: Change environmental variables if you want to have a different
   configuration. See \"$SCRIPTNAME --manual\" for details.
