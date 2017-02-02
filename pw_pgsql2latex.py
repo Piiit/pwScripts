@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # Ignoring warnings about "Used * or ** magic (star-args)"
 # pylint: disable=W0142
@@ -111,6 +111,9 @@ To use the `OUTPUTFILE` inside a LaTex document, just add a input-command
 
 Changelog
 ---------
+  * 0.6
+      - Port to Python 3
+      - Inclusive intervals as option
   * 0.5
       - TIKZ-config lines are now key/value pairs
       - Additional config parameters to tweak the TEX output, i.e., subfigure
@@ -144,6 +147,7 @@ import os
 import stat
 import sys
 import argparse
+import io
 
 __version__ = "0.5"
 
@@ -219,16 +223,16 @@ def main():
             1)
 
         # Print title and section before "usage"
-        print docparts[0]
+        print (docparts[0])
 
         # Print usage information
         sys.stdout.write("Usage\n-----\n```\n")
         parser.print_help()
-        print "```"
+        print ("```")
 
         # Print the rest
         #print "\n".join(__doc__.split('\n', 1)[1:])
-        print docparts[1]
+        print (docparts[1])
 
         sys.exit(0)
 
@@ -239,13 +243,14 @@ def main():
     mode = os.fstat(sys.stdin.fileno()).st_mode
 
     # Input files are explicitely given as a filename list
-    if type(args.FILE) is file:
+    #if type(args.FILE) is file:
+    if isinstance(args.FILE, io.IOBase):
         input_file = args.FILE
         input_text = input_file.readlines()
 
     # We have a piped or redirected STDIN at disposal...
     elif stat.S_ISFIFO(mode) or stat.S_ISREG(mode):
-        print "READING FROM STDIN\n"
+        print ("READING FROM STDIN\n")
         input_text = sys.stdin.readlines()
 
     # No stdin, no input files... shutdown!
@@ -276,12 +281,12 @@ def main():
         # If we print the whole figure/table combination, we need a "label" and
         # "caption" below the two sub-figures.
         if args.output_type == 'all':
-            if not cfg.has_key('label'):
+            if not 'label' in cfg:
                 raise_error_cfgline(
                     'label',
                     "We do not know which 'label' to use for figures.")
 
-            if not cfg.has_key('caption'):
+            if not 'caption' in cfg:
                 raise_error_cfgline(
                     'caption',
                     "We do not know which 'caption' to use for figures.")
@@ -303,9 +308,9 @@ def main():
             # If it is not configured explicitely, we will take these defaults:
             subfigure_left = 0.27
             subfigure_right = 0.63
-            if cfg.has_key('subfigure-left'):
+            if 'subfigure-left' in cfg:
                 subfigure_left = cfg['subfigure-left']
-            if cfg.has_key('subfigure-right'):
+            if 'subfigure-right' in cfg:
                 subfigure_right = cfg['subfigure-right']
 
             outfile.write(format_latex_figure_and_table(table,
@@ -325,7 +330,7 @@ def main():
                 "Unknown output type specified")
 
     except ValueError as valerr:
-        print "\n".join(valerr.args) + "\n"
+        print ("\n".join(valerr.args) + "\n")
         sys.exit(3)
 
 def format_tikz_desc(pos, desc):
@@ -362,9 +367,15 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
 
 def format_tikz_timeline(cfg):
     """Prints a timeline in a standalone tikz figure"""
+#    pos_numbers = 0
+#    if 'inclusive' in cfg and cfg['inclusive']:
+#        pos_numbers = 5
+    pos_numbers = 5
+
     return TEMPLATE_TIKZ_TIMELINE.format(start=int(cfg['from']),
                                          end=int(cfg['to']),
-                                         desc=cfg['desc'])
+                                         desc=cfg['desc'],
+                                         posno=pos_numbers)
 
 def raise_error(msg, hint=""):
     """Print an error message and a hint to solve the issue. The text is
@@ -547,7 +558,7 @@ def pgsql_parser(text):
                     cfg['teattnum'] = attnum
 
             # One or both temporal attributes are non-existent. Raise an error.
-            if not cfg.has_key('tsattnum') or not cfg.has_key('teattnum'):
+            if not 'tsattnum' in cfg or not 'teattnum' in cfg:
                 raise_error(
                     "Temporal attribute '%s' or '%s' not found in table " \
                     "header %s" % (cfg['ts'], cfg['te'], cfg['table'][0]))
@@ -717,7 +728,7 @@ TEMPLATE_TIKZ_TIMELINE = r"""
         \foreach \t in {{{start},...,{end}}}
         {{
             \draw ($(\t cm,-1mm)+(0cm,0)$)--($(\t cm,1mm)+(0cm,0)$);
-            \draw ($(\t cm,0.5mm)$) node[below,font=\scriptsize \bfseries]{{\t}};
+            \draw ($(\t {posno}mm,0.5mm)$) node[below,font=\scriptsize \bfseries]{{\t}};
         }}
         \draw ($({end}+1,0)+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
 """
