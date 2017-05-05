@@ -119,7 +119,7 @@ function checkArguments {
 
 
 # callPgCtl
-#     Call the PostgreSQL control program pg_ctl, either with or without log file
+#   Call the PostgreSQL control program pg_ctl, either with or without log file
 #   output.
 #
 #   $1 - pg_ctl command (ex., status, start, stop)
@@ -315,7 +315,12 @@ while true; do
             #    | filterdiff -p 0 -x "src/test/*" \
             #    | sed '/diff --git src\/test/,/^index/{d}' - > $2
 
-            git diff --no-prefix origin/master -- src/ ':!src/test/*' > $2
+            # It is best to generate PG patches without any parameters!
+            #
+            # git diff --no-prefix origin/master -- src/ ':!src/test/*' > $2
+
+            # Generate the patch against the same branch!
+            git diff origin/master -- src/ > $2
 
             exit $?
         ;;

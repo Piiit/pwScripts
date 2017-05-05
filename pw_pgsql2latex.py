@@ -65,6 +65,10 @@ describe which types are supported:
                         should sum up to 0.9 (0.1 space in between is fixed).
                         However, I keep it configurable in order to not be too
                         restrictive.
+     tablecaption       subfigure's table caption
+     tablelabel         subfigure's table label
+     graphcaption       subfigure's graph caption
+     graphlabel         subfigure's graph label
 ```
 
 Example
@@ -111,6 +115,8 @@ To use the `OUTPUTFILE` inside a LaTex document, just add a input-command
 
 Changelog
 ---------
+  * 0.7
+      - Table above graphs representation with -A or --All
   * 0.6
       - Port to Python 3
       - Inclusive intervals as option
@@ -149,7 +155,7 @@ import sys
 import argparse
 import io
 
-__version__ = "0.5"
+__version__ = "0.7"
 
 def main():
     """Main, nothing more to say :-)"""
@@ -185,6 +191,14 @@ def main():
         const='all',
         help='OUTPUT TYPE: Output the LaTex table and the TIKZ figure '
              'side-by-side. This is the default.')
+
+    group.add_argument(
+        '-A',
+        '--All',
+        action='store_const',
+        dest='output_type',
+        const='All',
+        help='OUTPUT TYPE: Output the LaTex table above the TIKZ figure.')
 
     group.add_argument(
         '-t',
@@ -264,23 +278,28 @@ def main():
         table = ""
         cfg = {}
 
-        if args.output_type in ['all', 'figure-standalone', 'figure-only']:
+        if args.output_type in ['all', 'All', 'figure-standalone', 'figure-only']:
             figure = format_tikz_figure(parse_result)
 
-        if args.output_type in ['all', 'table-only']:
+        if args.output_type in ['all', 'All', 'table-only']:
             table_type = 1
             if args.output_type == 'all':
                 table_type = 2
+            if args.output_type == 'All':
+                table_type = 3
 
             for line in parse_result:
                 if line['type'] == 'relation-table':
-                    table += format_latex_table(line, "", table_type)
+                    if table == "":
+                        table = format_latex_table(line, "", table_type)
+                    else:
+                        table += "    \hspace{2cm}" + format_latex_table(line, "", table_type)
                 if line['type'] == 'config':
                     cfg[line['key']] = line['value']
 
         # If we print the whole figure/table combination, we need a "label" and
         # "caption" below the two sub-figures.
-        if args.output_type == 'all':
+        if args.output_type in ['all', 'All']:
             if not 'label' in cfg:
                 raise_error_cfgline(
                     'label',
@@ -314,11 +333,19 @@ def main():
                 subfigure_right = cfg['subfigure-right']
 
             outfile.write(format_latex_figure_and_table(table,
-                                      figure,
-                                      cfg['caption'],
-                                      cfg['label'],
-                                      subfigure_left,
-                                      subfigure_right))
+                                                        figure,
+                                                        cfg['caption'],
+                                                        cfg['label'],
+                                                        subfigure_left,
+                                                        subfigure_right))
+        elif args.output_type == 'All':
+            outfile.write(format_latex_figure_and_table_top(table, figure,
+                                                            cfg['caption'],
+                                                            cfg['label'],
+                                                            cfg['tablecaption'],
+                                                            cfg['tablelabel'],
+                                                            cfg['graphcaption'],
+                                                            cfg['graphlabel']))
         elif args.output_type == 'table-only':
             outfile.write(table)
         elif args.output_type == 'figure-only':
@@ -342,10 +369,6 @@ def format_tikz_desc(pos, desc):
 
 def format_tikz_tupleline(tup, cfg, tuple_count, count):
     """Prints the tuple time lines in a standalone tikz figure"""
-    if cfg['name'] == "":
-        out = TEMPLATE_TIKZ_TUPLE + "{{$({attribs})$}};\n"
-    else:
-        out = TEMPLATE_TIKZ_TUPLE + "{{${name}_{{{id}}}=({attribs})$}};\n"
 
     valid_time_ts = int(tup[cfg['tsattnum']])
     valid_time_te = int(tup[cfg['teattnum']])
@@ -355,6 +378,14 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
     for key, value in enumerate(tup):
         if key not in [cfg['tsattnum'], cfg['teattnum']]:
             attribs += r"\mathrm{%s}," % value
+
+    if len(attribs) == 0:
+        out = TEMPLATE_TIKZ_TUPLE + "{{${name}_{{{id}}}$}};\n"
+    else:
+        if cfg['name'] == "":
+            out = TEMPLATE_TIKZ_TUPLE + "{{$({attribs})$}};\n"
+        else:
+            out = TEMPLATE_TIKZ_TUPLE + "{{${name}_{{{id}}}=({attribs})$}};\n"
 
     return out.format(name=cfg['name'],
                       id=tuple_count,
@@ -446,7 +477,7 @@ def pgsql_tokenizer(lines):
 
             # We skip tuple count rows at the end of each table. This ends
             # a table block.
-            match = re.search(r'\((\d+?)\srows\)', line)
+            match = re.search(r'\((\d+?)\s\w*\)', line)
             if match:
                 state = STATE_OUTSIDE
                 yield ['TUPLECOUNT', match.group(1)]
@@ -655,19 +686,22 @@ def format_latex_table(line, label, table_type=1):
                 header=attribs.rstrip(" &"),
                 rows=rows.rstrip("\n"))
 
-    return TEMPLATE_LATEX_TABLE2.format(
+    if table_type == 2:
+        return TEMPLATE_LATEX_TABLE2.format(
+                    header_cfg="c" * len(header),
+                    header=attribs.rstrip(" &"),
+                    rows=rows.rstrip("\n"),
+                    relation=line['name'])
+
+    return TEMPLATE_LATEX_TABLETOP.format(
                 header_cfg="c" * len(header),
                 header=attribs.rstrip(" &"),
                 rows=rows.rstrip("\n"),
                 relation=line['name'])
 
 
-def format_latex_figure_and_table(table_str,
-                                  tikz_str,
-                                  caption,
-                                  label,
-                                  subfigure_left,
-                                  subfigure_right):
+
+def format_latex_figure_and_table(table_str, tikz_str, caption, label, subfigure_left, subfigure_right):
     """Prints a figure and a table side-by-side as sub-figures"""
     return TEMPLATE_LATEX_TIKZTABLE.format(table=table_str,
                                            tikzpicture=tikz_str,
@@ -675,6 +709,17 @@ def format_latex_figure_and_table(table_str,
                                            label=label,
                                            subfigureleft=subfigure_left,
                                            subfigureright=subfigure_right)
+
+def format_latex_figure_and_table_top(table_str, tikz_str, caption, label, tablecaption, tablelabel, graphcaption, graphlabel):
+    """Prints a figure and a table side-by-side as sub-figures"""
+    return TEMPLATE_LATEX_TIKZTABLETOP.format(table=table_str,
+                                           tikzpicture=tikz_str,
+                                           caption=caption,
+                                           label=label,
+                                           tablecaption=tablecaption,
+                                           tablelabel=tablelabel,
+                                           graphcaption=graphcaption,
+                                           graphlabel=graphlabel)
 
 # STATES of the tokenizer, which is implemented as a state machine...
 STATE_OUTSIDE = 0        # We have not found a table yet
@@ -774,6 +819,36 @@ TEMPLATE_LATEX_TIKZTABLE = r"""
     \hspace{{10pt}}
     \begin{{subfigure}}[c]{{{subfigureright}\textwidth}}
 {tikzpicture}
+    \end{{subfigure}}
+    \caption{{{caption}}}
+    \label{{fig:{label}}}
+\end{{figure}}"""
+
+TEMPLATE_LATEX_TABLETOP = r"""
+    \begin{{tabular}}[t]{{|c|{header_cfg}|}}
+        \hline
+        \bfseries {relation} & {header} \\
+        \hline
+{rows}
+        \hline
+    \end{{tabular}}
+"""
+
+TEMPLATE_LATEX_TIKZTABLETOP = r"""
+\begin{{figure}}[!ht]
+    \centering
+    \begin{{subfigure}}{{\textwidth}}
+    \centering
+{table}
+    \caption{{{tablecaption}}}
+    \label{{sfig:{tablelabel}}}
+    \end{{subfigure}}
+
+    \begin{{subfigure}}{{\textwidth}}
+    \centering
+{tikzpicture}
+    \caption{{{graphcaption}}}
+    \label{{sfig:{graphlabel}}}
     \end{{subfigure}}
     \caption{{{caption}}}
     \label{{fig:{label}}}
