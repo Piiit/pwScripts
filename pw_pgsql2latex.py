@@ -429,16 +429,26 @@ def pgsql_tokenizer(lines):
     token (i.e., 2-element list, with key and value) that we give back at each
     iteration"""
 
-    state = STATE_OUTSIDE
+    input_type = INPUT_TYPE_POSTGRES
+    value_sep = '|'
+
+    state = STATE_FIRSTLINE
     for line in lines:
 
         line = line.lstrip()
 
+        if state == STATE_FIRSTLINE:
+            state = STATE_OUTSIDE
+            match = re.search(r'--\s*TIKZ: TSV', line)
+            if match:
+                input_type = INPUT_TYPE_TSV
+                value_sep = '\t'
+                continue
+
         # Skip empty lines
         # This ends a table parsing, and returns to the STATE_OUTSIDE state
         if line.rstrip() == "":
-            if state != STATE_OUTSIDE:
-                state = STATE_OUTSIDE
+            state = STATE_OUTSIDE
             continue
 
         # Skip SQL comments (except if they start with the keyword TIKZ)
@@ -459,24 +469,28 @@ def pgsql_tokenizer(lines):
         # columns, we can search for columns delimiters, i.e., |.
         if state == STATE_OUTSIDE:
 
-            # Search for table headers, if none found, skip it...
-            if None == re.search(r'\s*[^\|]+?\s*\|\s*[^\|]+?', line):
-                yield ['COMMAND', line.rstrip()]
-                continue
+            # PostgreSQL output: Search for table headers first, if not found, skip it...
+            # TSV output: First line (not a comment), must be a table header...
+            if input_type == INPUT_TYPE_POSTGRES:
+                if None == re.search(r'\s*[^\|]+?\s*\|\s*[^\|]+?', line):
+                    yield ['COMMAND', line.rstrip()]
+                    continue
 
             state = STATE_HEADER
             headers = []
-            for head in line.split('|'):
+            for head in line.split(value_sep):
                 headers.append(head.strip())
 
             yield ['HEADER', headers]
+            if input_type == INPUT_TYPE_TSV:
+                state = STATE_TUPLES
+                continue
 
         # Not skipped and currently in a tuple state, therefore the next data
         # line must be another tuple, or tuple count, i.e., (3 rows)
         if state == STATE_TUPLES:
 
-            # We skip tuple count rows at the end of each table. This ends
-            # a table block.
+            # PostgreSQL: We skip tuple count rows at the end of each table. This ends a table block.
             match = re.search(r'\((\d+?)\s\w*\)', line)
             if match:
                 state = STATE_OUTSIDE
@@ -484,7 +498,7 @@ def pgsql_tokenizer(lines):
                 continue
 
             values = []
-            for value in line.split('|'):
+            for value in line.split(value_sep):
                 values.append(value.strip())
 
             yield ['TUPLE', values]
@@ -513,22 +527,15 @@ def pgsql_parser(text):
                 comment_body = match.group(2)
 
                 if comment_type == 'config':
-                    listitems = [comment_type] + re.split(r'\s*,\s*',
-                                                          comment_body, 1)
+                    listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 1)
                     configs.append(
                         dict(zip(['type',
                                   'key',
                                   'value'], listitems)))
                 elif comment_type in ['relation', 'relation-table']:
-                    listitems = [comment_type] + re.split(r'\s*,\s*',
-                                                          comment_body, 3)
+                    listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 3)
                     configs_count_relation += 1
-                    configs.append(
-                        dict(zip(['type',
-                                  'name',
-                                  'ts',
-                                  'te',
-                                  'desc'], listitems)))
+                    configs.append(dict(zip(['type', 'name', 'ts', 'te', 'desc'], listitems)))
                 elif comment_type == 'timeline':
                     if configs_count_timeline == 1:
                         raise_error(
@@ -538,14 +545,9 @@ def pgsql_parser(text):
                             "-- TIKZ: timeline, from, to, time line " +
                             "description")
                     else:
-                        listitems = [comment_type] + re.split(r'\s*,\s*',
-                                                              comment_body, 2)
+                        listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 2)
                         configs_count_timeline += 1
-                        configs.append(
-                            dict(zip(['type',
-                                      'from',
-                                      'to',
-                                      'desc'], listitems)))
+                        configs.append(dict(zip(['type', 'from', 'to', 'desc'], listitems)))
         elif token[0] == 'HEADER':
             tables.append([token[1]])
             table_count = len(tables) - 1
@@ -722,10 +724,14 @@ def format_latex_figure_and_table_top(table_str, tikz_str, caption, label, table
                                            graphlabel=graphlabel)
 
 # STATES of the tokenizer, which is implemented as a state machine...
-STATE_OUTSIDE = 0        # We have not found a table yet
-STATE_HEADER = 1         # We have found a table STATE_HEADER (attribute names)
-STATE_TUPLES = 2         # We have already parsed the table header, and are
+STATE_FIRSTLINE = 0
+STATE_OUTSIDE   = 1      # We have not found a table yet
+STATE_HEADER    = 2      # We have found a table STATE_HEADER (attribute names)
+STATE_TUPLES    = 3      # We have already parsed the table header, and are
                          # reading in tuples now
+
+INPUT_TYPE_POSTGRES = 0
+INPUT_TYPE_TSV      = 1
 
 TEMPLATE_HEADER = r"""% This file has been automatically generated by...
 %
