@@ -33,6 +33,8 @@ In addition this script needs the following prerequisites for the input:
   3. A single timeline can be defined with `TIKZ: timeline, from, to, desc`
      This is optional.
 
+NB: Since version 0.8 it also supports TSV files, instead of PostgreSQL output.
+
 We do not use some Python PostgreSQL libs here, because TEMPORAL OPERATORS are
 not supported yet. Another reason is that we can create output files manually,
 if we do not have a (TEMPORAL) POSTGRESQL instance running.
@@ -42,12 +44,14 @@ TIKZ-comment syntax
 -------------------
 First argument after `TIKZ:` is the type of drawing. The following lines
 describe which types are supported:
-  1. `-- TIKZ: relation[-table], [abbrev], start column, end column,
+  1. `-- TIKZ: relation[-table], [abbrev], start column, [end column],
      description` <br>
      If you put `relation-table` as drawing-type, a table and a diagram will be
      printed.
      The abbreviation is optional (it is used for tuple names). If you want to
      suppress it, do not forget to put the comma separator anyway.
+     If `end column` is empty, the parser assumes a PostgreSQL rangetype at
+     `start column`.
   2. `-- TIKZ: timeline, from, to, description`
   3. `-- TIKZ: config, key, value` <br>
      The key and value of this line is used for the combined table/figure
@@ -108,6 +112,11 @@ If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
    -- TIKZ: config, caption, Input relations \textbf{r} and \textbf{s}
 ```
 
+You can also use TSV for relations, instead of PostgreSQL outputs. If you want to do
+so, add `-- TIKZ: TSV` as very first line of your input file. The first non-comment
+line will be interpreted as beginning of a table, that is, the header followed by
+some lines representing tuples. NB: Separate each header or tuple with tabulators.
+
 The full piped command is then: `psql -a -d DBNAME -f FILENAME |
 pgsql2latex.py -o OUTPUTFILE -`.
 To use the `OUTPUTFILE` inside a LaTex document, just add a input-command
@@ -115,6 +124,11 @@ To use the `OUTPUTFILE` inside a LaTex document, just add a input-command
 
 Changelog
 ---------
+  * 0.8
+      - Tab-separated-values (TSV) support
+      - Support for different input types (currently only Postgres and TSV)
+      - Periods instead of single attributes as time point start/end (boundary
+        types ignored, i.e., always closed intervals used)
   * 0.7
       - Table above graphs representation with -A or --All
   * 0.6
@@ -232,9 +246,7 @@ def main():
     # SystemExit).
     if len(sys.argv) == 2 and sys.argv[1] == '--manual':
 
-        docparts = __doc__.split(
-            "Usage\n-----\n(automatically printed from `argparse` module)\n",
-            1)
+        docparts = __doc__.split("Usage\n-----\n(automatically printed from `argparse` module)\n", 1)
 
         # Print title and section before "usage"
         print (docparts[0])
@@ -315,8 +327,7 @@ def main():
         outfile = sys.stdout
         if args.output != None:
             if os.path.isfile(args.output):
-                raise_error(
-                    "File '%s' already exists! Exiting..." % args.output)
+                raise_error("File '%s' already exists! Exiting..." % args.output)
             outfile = open(args.output, 'w')
 
         outfile.write(format_latex_header("".join(input_text)))
@@ -353,8 +364,7 @@ def main():
         elif args.output_type == 'figure-standalone':
             outfile.write(format_latex_standalone(figure))
         else:
-            raise_error(
-                "Unknown output type specified")
+            raise_error("Unknown output type specified")
 
     except ValueError as valerr:
         print ("\n".join(valerr.args) + "\n")
@@ -370,13 +380,23 @@ def format_tikz_desc(pos, desc):
 def format_tikz_tupleline(tup, cfg, tuple_count, count):
     """Prints the tuple time lines in a standalone tikz figure"""
 
-    valid_time_ts = int(tup[cfg['tsattnum']])
-    valid_time_te = int(tup[cfg['teattnum']])
+    temporal_attribs = [cfg['tsattnum']]
+
+    if 'teattnum' in cfg:
+        valid_time_ts = int(tup[cfg['tsattnum']])
+        valid_time_te = int(tup[cfg['teattnum']])
+        temporal_attribs.append(cfg['teattnum'])
+    else:
+        # Parse range types, we ignore boundary types for now...
+        match = re.search(r'.?(\d+),(\d+).?', tup[cfg['tsattnum']])
+        if match:
+            valid_time_ts = int(match.group(1))
+            valid_time_te = int(match.group(2))
 
     # Concatenate all non-temporal attributes as description above the line
     attribs = ""
     for key, value in enumerate(tup):
-        if key not in [cfg['tsattnum'], cfg['teattnum']]:
+        if key not in temporal_attribs:
             attribs += r"\mathrm{%s}," % value
 
     if len(attribs) == 0:
@@ -528,14 +548,13 @@ def pgsql_parser(text):
 
                 if comment_type == 'config':
                     listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 1)
-                    configs.append(
-                        dict(zip(['type',
-                                  'key',
-                                  'value'], listitems)))
+                    configs.append(dict(zip(['type', 'key', 'value'], listitems)))
+
                 elif comment_type in ['relation', 'relation-table']:
                     listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 3)
                     configs_count_relation += 1
                     configs.append(dict(zip(['type', 'name', 'ts', 'te', 'desc'], listitems)))
+
                 elif comment_type == 'timeline':
                     if configs_count_timeline == 1:
                         raise_error(
@@ -590,11 +609,10 @@ def pgsql_parser(text):
                 elif cfg['te'] == column:
                     cfg['teattnum'] = attnum
 
-            # One or both temporal attributes are non-existent. Raise an error.
-            if not 'tsattnum' in cfg or not 'teattnum' in cfg:
-                raise_error(
-                    "Temporal attribute '%s' or '%s' not found in table " \
-                    "header %s" % (cfg['ts'], cfg['te'], cfg['table'][0]))
+            # Only check for the first temporal attribute, if the second is missing,
+            # it means that "ts" contains a range type.
+            if not 'tsattnum' in cfg:
+                raise_error("Temporal attribute '%s' not found in table header %s" % (cfg['ts'], cfg['table'][0]))
 
     return configs
 
@@ -631,8 +649,7 @@ def format_tikz_figure(parse_result):
 
         # Print description on the left-hand-side of each relation
         if line['desc'].strip() != "":
-            out += format_tikz_desc(posy - (len(line['table']) - 1) / 2,
-                                   line['desc'])
+            out += format_tikz_desc(posy - (len(line['table']) - 1) / 2, line['desc'])
 
         # We skip the first element inside a table. It is the header.
         table = line['table'][1:]
