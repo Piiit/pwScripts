@@ -52,7 +52,7 @@ describe which types are supported:
      suppress it, do not forget to put the comma separator anyway.
      If `end column` is empty, the parser assumes a PostgreSQL rangetype at
      `start column`.
-  2. `-- TIKZ: timeline, from, to, description`
+  2. `-- TIKZ: timeline, from, to, step, description`
   3. `-- TIKZ: config, key, value` <br>
      The key and value of this line is used for the combined table/figure
      picture, or for the standalone tikzpicture file. You can configure the
@@ -83,7 +83,7 @@ If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
    TABLE r;
    -- TIKZ: relation, s, ts, te, Input relation s
    SELECT * FROM s WHERE a='B';
-   -- TIKZ: timeline, 0, 10, time
+   -- TIKZ: timeline, 0, 10, 1, time
    -- TIKZ: config, figure01, This is a caption (latex-syntax possible)
 ```
 ...then you get the following output, which serves as input to
@@ -105,7 +105,7 @@ If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
     B |  3 |  4
     B |  7 |  9
 
-   -- TIKZ: timeline, 0, 10, time
+   -- TIKZ: timeline, 0, 10, 1, time
 
    -- You can refer to this figure with \ref{fig:input001}
    -- TIKZ: config, label, input001
@@ -290,9 +290,6 @@ def main():
         table = ""
         cfg = {}
 
-        if args.output_type in ['all', 'All', 'figure-standalone', 'figure-only']:
-            figure = format_tikz_figure(parse_result)
-
         if args.output_type in ['all', 'All', 'table-only']:
             table_type = 1
             if args.output_type == 'all':
@@ -322,8 +319,11 @@ def main():
                     'caption',
                     "We do not know which 'caption' to use for figures.")
 
+        if args.output_type in ['all', 'All', 'figure-standalone', 'figure-only']:
+            figure = format_tikz_figure(parse_result, cfg)
+
         # TODO Create text first in memory, and write it at last. Otherwise, we
-        # could get half-made output files, when an error has
+        # could get half-made output files, when an error occurs
         outfile = sys.stdout
         if args.output != None:
             if os.path.isfile(args.output):
@@ -336,12 +336,8 @@ def main():
 
             # Subfigures have a left and right column with a certain width
             # If it is not configured explicitely, we will take these defaults:
-            subfigure_left = 0.27
-            subfigure_right = 0.63
-            if 'subfigure-left' in cfg:
-                subfigure_left = cfg['subfigure-left']
-            if 'subfigure-right' in cfg:
-                subfigure_right = cfg['subfigure-right']
+            subfigure_left = list_get(cfg, 'subfigure-left', 0.27)
+            subfigure_right = list_get(cfg, 'subfigure-right', 0.63)
 
             outfile.write(format_latex_figure_and_table(table,
                                                         figure,
@@ -382,6 +378,10 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
 
     temporal_attribs = [cfg['tsattnum']]
 
+#    print(cfg)
+
+    template = TEMPLATE_TIKZ_TUPLE
+
     if 'teattnum' in cfg:
         valid_time_ts = int(tup[cfg['tsattnum']])
         valid_time_te = int(tup[cfg['teattnum']])
@@ -392,6 +392,12 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
         if match:
             valid_time_ts = int(match.group(1))
             valid_time_te = int(match.group(2))
+        else:
+            # Single point detected: Generate point representation
+            valid_time_ts = int(tup[cfg['tsattnum']])
+            valid_time_te = valid_time_ts + 1
+            template = TEMPLATE_TIKZ_POINT
+#            print(valid_time_ts)
 
     # Concatenate all non-temporal attributes as description above the line
     attribs = ""
@@ -400,12 +406,12 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
             attribs += r"\mathrm{%s}," % value
 
     if len(attribs) == 0:
-        out = TEMPLATE_TIKZ_TUPLE + "{{${name}_{{{id}}}$}};\n"
+        out = template + "{{${name}_{{{id}}}$}};\n"
     else:
         if cfg['name'] == "":
-            out = TEMPLATE_TIKZ_TUPLE + "{{$({attribs})$}};\n"
+            out = template + "{{$({attribs})$}};\n"
         else:
-            out = TEMPLATE_TIKZ_TUPLE + "{{${name}_{{{id}}}=({attribs})$}};\n"
+            out = template + "{{${name}_{{{id}}}=({attribs})$}};\n"
 
     return out.format(name=cfg['name'],
                       id=tuple_count,
@@ -422,6 +428,16 @@ def format_tikz_timeline(cfg):
 #    if 'inclusive' in cfg and cfg['inclusive']:
 #        pos_numbers = 5
     pos_numbers = 5
+
+    print(cfg)
+
+    if 'step' in cfg and cfg['step']:
+        return TEMPLATE_TIKZ_TIMELINE2.format(start=int(cfg['from']),
+                                              end=int(cfg['to']),
+                                              step=int(cfg['step']),
+                                              desc=cfg['desc'],
+                                              posno=pos_numbers)
+
 
     return TEMPLATE_TIKZ_TIMELINE.format(start=int(cfg['from']),
                                          end=int(cfg['to']),
@@ -552,6 +568,10 @@ def pgsql_parser(text):
 
                 elif comment_type in ['relation', 'relation-table']:
                     listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 3)
+                    if len(listitems) != 5:
+                        raise_error("Not enough parameters for TIKZ relation or TIKZ relation-table given.\n" +
+                                    "For example:\n--TIKZ: relation, R, ts, te, Description string\n" +
+                                    "Instead the following was given: --" + token[1])
                     configs_count_relation += 1
                     configs.append(dict(zip(['type', 'name', 'ts', 'te', 'desc'], listitems)))
 
@@ -561,12 +581,20 @@ def pgsql_parser(text):
                             "More than one TIKZ timeline string found",
                             "Define a single configuration string for the " +
                             "timeline.\n For example:\n" +
-                            "-- TIKZ: timeline, from, to, time line " +
+                            "-- TIKZ: timeline, from, to, step, time line " +
                             "description")
                     else:
-                        listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 2)
+                        listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 3)
+                        print(listitems)
+                        if len(listitems) != 5:
+                            raise_error(
+                                "Wrong TIKZ timeline string found: '%s'" % token[1],
+                                "Define a correct configuration string for the " +
+                                "timeline.\n For example: " +
+                                "-- TIKZ: timeline, from, to, step, time line " +
+                                "description")
                         configs_count_timeline += 1
-                        configs.append(dict(zip(['type', 'from', 'to', 'desc'], listitems)))
+                        configs.append(dict(zip(['type', 'from', 'to', 'step', 'desc'], listitems)))
         elif token[0] == 'HEADER':
             tables.append([token[1]])
             table_count = len(tables) - 1
@@ -616,7 +644,7 @@ def pgsql_parser(text):
 
     return configs
 
-def format_tikz_figure(parse_result):
+def format_tikz_figure(parse_result, cfg):
     """
     Draw a TIKZ figure with an optional timeline, tuple-lines for each tuple in
     all given tables, and description on the right-hand-side of each table.
@@ -634,6 +662,9 @@ def format_tikz_figure(parse_result):
 
     posy = count_above
     out = ""
+
+    xscale = list_get(cfg, 'xscale', 0.65)
+    yscale = list_get(cfg, 'yscale', 0.4)
 
     for line in parse_result:
 
@@ -661,7 +692,11 @@ def format_tikz_figure(parse_result):
             out += format_tikz_tupleline(tup, line, tuple_count, posy)
             posy -= 1
 
-    return TEMPLATE_TIKZ_PICTURE.format(content=out)
+    print(cfg)
+
+
+
+    return TEMPLATE_TIKZ_PICTURE.format(content=out, xscale=xscale, yscale=yscale)
 
 def format_latex_header(raw_data):
     """Prints a TEX comment header including a version, this app's name, and
@@ -740,6 +775,12 @@ def format_latex_figure_and_table_top(table_str, tikz_str, caption, label, table
                                            graphcaption=graphcaption,
                                            graphlabel=graphlabel)
 
+def list_get (l, idx, default):
+    try:
+        return l[idx]
+    except:
+        return default
+
 # STATES of the tokenizer, which is implemented as a state machine...
 STATE_FIRSTLINE = 0
 STATE_OUTSIDE   = 1      # We have not found a table yet
@@ -778,7 +819,7 @@ TEMPLATE_TIKZ_DOC = r"""
 """
 
 TEMPLATE_TIKZ_PICTURE = r"""
-    \begin{{tikzpicture}}[xscale=0.65,yscale=0.4]
+    \begin{{tikzpicture}}[xscale={xscale},yscale={yscale}]
     {content}
     \end{{tikzpicture}}
 """
@@ -790,6 +831,7 @@ TEMPLATE_TIKZ_DESC = r"""
         \node[align=left, font=\scriptsize] at (0,{pos}) {{{desc}}};
 """
 
+# Regular timeline representation with a number on each step
 TEMPLATE_TIKZ_TIMELINE = r"""
         % Time line
         \draw[->, line width = 0.9] ({start},0)--({end}+1,0);
@@ -801,10 +843,31 @@ TEMPLATE_TIKZ_TIMELINE = r"""
         \draw ($({end}+1,0)+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
 """
 
+# Time line with number at each {step}.
+TEMPLATE_TIKZ_TIMELINE2 = r"""
+        % Time line
+        \draw[->, line width = 0.9] ({start},0)--({end}+1,0);
+        \foreach \t in {{{start},...,{end}}}
+        {{
+            \draw ($(\t cm,-1mm)+(0cm,0)$)--($(\t cm,1mm)+(0cm,0)$);
+            \pgfmathparse{{Mod(\t, {step}) == 0 ? 1 : 0}}
+            \ifnum\pgfmathresult>0
+            	  \draw ($(\t {posno}mm,0.5mm)$) node[below,font=\scriptsize \bfseries]{{\t}};
+            \fi
+        }}
+        \draw ($({end}+1,0)+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
+"""
+
 TEMPLATE_TIKZ_TUPLE = r"""
         % Tuple {name}_{id}
         \draw[-] ({ts},{count})--({te},{count});
         \draw[-] ({posx},{posy}) node[above,font=\tiny]"""
+
+TEMPLATE_TIKZ_POINT = r"""
+        % Point {name}_{id}
+        \draw ({ts}+0.5,{count}) node[cross] {{}};
+        \draw[-] ({posx},{posy}) node[above,font=\tiny]"""
+
 
 TEMPLATE_LATEX_TABLE = r"""
     \begin{{table}}
@@ -875,7 +938,8 @@ TEMPLATE_LATEX_TIKZTABLETOP = r"""
     \end{{subfigure}}
     \caption{{{caption}}}
     \label{{fig:{label}}}
-\end{{figure}}"""
+\end{{figure}}
+"""
 
 if __name__ == '__main__':
     main()
