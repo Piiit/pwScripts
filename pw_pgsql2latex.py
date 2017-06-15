@@ -388,21 +388,13 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
 
     relation = cfg['relation']
 
-    if relation.teid != -1:
-        valid_time_ts = int(relation.getTupleTS(tup))
-        valid_time_te = int(relation.getTupleTE(tup))
-    else:
-        # Parse range types, we ignore boundary types for now...
-        match = re.search(r'.?(\d+),(\d+).?', relation.getTupleTS(tup))
-        if match:
-            valid_time_ts = int(match.group(1))
-            valid_time_te = int(match.group(2))
-        else:
-            # Single point detected: Generate point representation
-            valid_time_ts = int(relation.getTupleTS(tup))
-            valid_time_te = valid_time_ts + 1
-            template = TEMPLATE_TIKZ_POINT
-#            print(valid_time_ts)
+    valid_time_ts = relation.getTupleTS(tup)
+    valid_time_te = relation.getTupleTE(tup)
+
+    # Single point detected: Generate point representation
+    if valid_time_te == -1:
+        valid_time_te = valid_time_ts + 1
+        template = TEMPLATE_TIKZ_POINT
 
     # Concatenate all non-temporal (non-meta) attributes as description above the line
     attribs = ""
@@ -585,11 +577,7 @@ def pgsql_parser(text):
                         tables.append(relation)
                         configs_count_relation += 1
 
-                    relation.name = listitems[1]
-                    relation.tsname = listitems[2]
-                    relation.tename = listitems[3]
-                    relation.yposname = listitems[4]
-                    relation.desc = listitems[5]
+                    relation.setMetaData(listitems[1:])
 
                     configs.append({'type' : listitems[0], 'relation' : relation})
 
@@ -989,13 +977,13 @@ class Relation:
             raise_error("Too many tuple columns for the actual schema: " + self.schema)
 
     def getTupleTS(self, tup):
-        return tup[self.tsid]
+        return self.getTupleT(tup)[0]
 
     def getTupleTE(self, tup):
-        return tup[self.teid]
+        return self.getTupleT(tup)[1]
 
     def getTupleYPOS(self, tup):
-        return tup[self.ypos]
+        return float(tup[self.ypos])
 
     def getTupleB(self, tup):
         result = []
@@ -1034,22 +1022,26 @@ class Relation:
         except:
             return default
 
-    def setMetaData(self, tsname, tename, yposname):
-        # Find attribute numbers (i.e., column indexes) for temporal
-        # attributes
-        for attnum, column in enumerate(self.schema):
-            if tsname == column:
-                self.tsid = attnum
-            elif tename == column:
-                self.teid = attnum
-            elif yposname == column:
-                self.ypos = attnum
+    def getTupleT(self, tup):
+        if self.teid != -1:
+            return [int(tup[self.tsid]), int(tup[self.teid])]
 
-        # Only check for the first temporal attribute, if the second is missing,
-        # it means that "ts" contains a range type.
-        if self.tsid == -1:
-            raise_error("Temporal attribute '%s' not found in table header %s" % (tsname, self.schema))
+        # Parse range types, we ignore boundary types for now...
+        match = re.search(r'.?(\d+),(\d+).?', tup[self.tsid])
+        if match:
+            return [int(match.group(1)), int(match.group(2))]
 
+        # Single point detected: Generate point representation
+        return [int(tup[self.tsid]), -1]
+
+    def setMetaData(self, listitems):
+        if len(listitems) != 5:
+            raise_error("Meta data for relations does not have the right number of attributes (5 needed). Given: '%s'." % ", ".join(listitems))
+        self.name = listitems[0]
+        self.tsname = listitems[1]
+        self.tename = listitems[2]
+        self.yposname = listitems[3]
+        self.desc = listitems[4]
 
 if __name__ == '__main__':
     main()
