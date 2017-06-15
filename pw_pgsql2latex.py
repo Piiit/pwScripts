@@ -44,14 +44,15 @@ TIKZ-comment syntax
 -------------------
 First argument after `TIKZ:` is the type of drawing. The following lines
 describe which types are supported:
-  1. `-- TIKZ: relation[-table], [abbrev], start column, [end column],
+  1. `-- TIKZ: relation[-table], [abbrev], start column, [end column], [ypos],
      description` <br>
      If you put `relation-table` as drawing-type, a table and a diagram will be
      printed.
      The abbreviation is optional (it is used for tuple names). If you want to
      suppress it, do not forget to put the comma separator anyway.
      If `end column` is empty, the parser assumes a PostgreSQL rangetype at
-     `start column`.
+     `start column`, or a point representation if the rangetype parsing failes.
+     The optional `ypos` defines the y-position of each tuple inside the figure.
   2. `-- TIKZ: timeline, from, to, step, description`
   3. `-- TIKZ: config, key, value` <br>
      The key and value of this line is used for the combined table/figure
@@ -73,15 +74,17 @@ describe which types are supported:
      tablelabel         subfigure's table label
      graphcaption       subfigure's graph caption
      graphlabel         subfigure's graph label
+     xscale             scale of the tikzpicture (on the x-axis)
+     yscale             scale of the tikzpicture (on the y-axis)
 ```
 
 Example
 -------
 If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
 ```
-   -- TIKZ: relation, r, ts, te, Input relation r
+   -- TIKZ: relation, r, ts, te,, Input relation r
    TABLE r;
-   -- TIKZ: relation, s, ts, te, Input relation s
+   -- TIKZ: relation, s, ts, te,, Input relation s
    SELECT * FROM s WHERE a='B';
    -- TIKZ: timeline, 0, 10, 1, time
    -- TIKZ: config, figure01, This is a caption (latex-syntax possible)
@@ -89,7 +92,7 @@ If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
 ...then you get the following output, which serves as input to
  **pw_pgsql2latex.py**.
 ```
-   -- TIKZ: relation, r, ts, te, Input relation r
+   -- TIKZ: relation, r, ts, te,, Input relation r
    TABLE r;
     a | ts | te
    ---+----+----
@@ -97,7 +100,7 @@ If you run the following code as a file with `psql -a -d DBNAME -f FILENAME`...
     B |  3 |  9
     G |  8 | 10
 
-   -- TIKZ: relation, s, ts, te, Input relation s
+   -- TIKZ: relation, s, ts, te,, Input relation s
    SELECT * FROM s WHERE a='B';
     a | ts | te
    ---+----+----
@@ -124,6 +127,11 @@ To use the `OUTPUTFILE` inside a LaTex document, just add a input-command
 
 Changelog
 ---------
+  * 0.9thesis
+      - xscale/yscale for tikz pictures
+      - point representation (cross) if only one scalar value is given as time
+      - steps on the time line can now be configured
+      - Fast hacks for thesis: to adjust ypos of tuples given by an input attribute
   * 0.8
       - Tab-separated-values (TSV) support
       - Support for different input types (currently only Postgres and TSV)
@@ -169,7 +177,7 @@ import sys
 import argparse
 import io
 
-__version__ = "0.8"
+__version__ = "0.9thesis"
 
 def main():
     """Main, nothing more to say :-)"""
@@ -376,16 +384,11 @@ def format_tikz_desc(pos, desc):
 def format_tikz_tupleline(tup, cfg, tuple_count, count):
     """Prints the tuple time lines in a standalone tikz figure"""
 
-    temporal_attribs = [cfg['tsattnum']]
-
-#    print(cfg)
-
     template = TEMPLATE_TIKZ_TUPLE
 
     if 'teattnum' in cfg:
         valid_time_ts = int(tup[cfg['tsattnum']])
         valid_time_te = int(tup[cfg['teattnum']])
-        temporal_attribs.append(cfg['teattnum'])
     else:
         # Parse range types, we ignore boundary types for now...
         match = re.search(r'.?(\d+),(\d+).?', tup[cfg['tsattnum']])
@@ -401,9 +404,16 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
 
     # Concatenate all non-temporal attributes as description above the line
     attribs = ""
+    non_attribs = [
+        cfg['tsattnum'],
+        list_get(cfg, 'yposattnum', -1),
+        list_get(cfg, 'teattnum', -1)
+        ]
+
     for key, value in enumerate(tup):
-        if key not in temporal_attribs:
-            attribs += r"\mathrm{%s}," % value
+        if key in non_attribs:
+            continue
+        attribs += r"\mathrm{%s}," % value
 
     if len(attribs) == 0:
         out = template + "{{${name}_{{{id}}}$}};\n"
@@ -412,6 +422,9 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
             out = template + "{{$({attribs})$}};\n"
         else:
             out = template + "{{${name}_{{{id}}}=({attribs})$}};\n"
+
+    if 'yposattnum' in cfg:
+        count = float(tup[cfg['yposattnum']])
 
     return out.format(name=cfg['name'],
                       id=tuple_count,
@@ -428,8 +441,6 @@ def format_tikz_timeline(cfg):
 #    if 'inclusive' in cfg and cfg['inclusive']:
 #        pos_numbers = 5
     pos_numbers = 5
-
-    print(cfg)
 
     if 'step' in cfg and cfg['step']:
         return TEMPLATE_TIKZ_TIMELINE2.format(start=int(cfg['from']),
@@ -567,13 +578,13 @@ def pgsql_parser(text):
                     configs.append(dict(zip(['type', 'key', 'value'], listitems)))
 
                 elif comment_type in ['relation', 'relation-table']:
-                    listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 3)
-                    if len(listitems) != 5:
+                    listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 4)
+                    if len(listitems) != 6:
                         raise_error("Not enough parameters for TIKZ relation or TIKZ relation-table given.\n" +
-                                    "For example:\n--TIKZ: relation, R, ts, te, Description string\n" +
+                                    "For example:\n--TIKZ: relation, R, ts, te, ypos, Description string\n" +
                                     "Instead the following was given: --" + token[1])
                     configs_count_relation += 1
-                    configs.append(dict(zip(['type', 'name', 'ts', 'te', 'desc'], listitems)))
+                    configs.append(dict(zip(['type', 'name', 'ts', 'te', 'ypos', 'desc'], listitems)))
 
                 elif comment_type == 'timeline':
                     if configs_count_timeline == 1:
@@ -585,7 +596,6 @@ def pgsql_parser(text):
                             "description")
                     else:
                         listitems = [comment_type] + re.split(r'\s*,\s*', comment_body, 3)
-                        print(listitems)
                         if len(listitems) != 5:
                             raise_error(
                                 "Wrong TIKZ timeline string found: '%s'" % token[1],
@@ -636,6 +646,8 @@ def pgsql_parser(text):
                     cfg['tsattnum'] = attnum
                 elif cfg['te'] == column:
                     cfg['teattnum'] = attnum
+                elif cfg['ypos'] == column:
+                    cfg['yposattnum'] = attnum
 
             # Only check for the first temporal attribute, if the second is missing,
             # it means that "ts" contains a range type.
@@ -658,10 +670,20 @@ def format_tikz_figure(parse_result, cfg):
     for line in parse_result:
         if line['type'] == 'timeline':
             break
-        count_above += len(line['table']) - 1
+        if 'yposattnum' in line:
+            m = 1.0
+            ypos = line['yposattnum']
+            for v in line['table'][1:]:
+                if m < float(v[ypos]):
+                    m = float(v[ypos])
+            count_above += m + 1
+        else:
+            count_above += len(line['table']) - 1
 
     posy = count_above
     out = ""
+
+    print(posy)
 
     xscale = list_get(cfg, 'xscale', 0.65)
     yscale = list_get(cfg, 'yscale', 0.4)
@@ -692,10 +714,6 @@ def format_tikz_figure(parse_result, cfg):
             out += format_tikz_tupleline(tup, line, tuple_count, posy)
             posy -= 1
 
-    print(cfg)
-
-
-
     return TEMPLATE_TIKZ_PICTURE.format(content=out, xscale=xscale, yscale=yscale)
 
 def format_latex_header(raw_data):
@@ -720,8 +738,27 @@ def format_latex_table(line, label, table_type=1):
                         "type '%s' (type 'relation' expected)" % line['type'])
 
     # We skip the first element inside a table. It is the header.
-    tuples = line['table'][1:]
-    header = line['table'][0]
+#    tuples = line['table'][1:]
+#    header = line['table'][0]
+
+    ###################################################################################
+    # FIXME fast hack for thesis
+    pos = -1
+    header = []
+    for i, att in enumerate(line['table'][0]):
+        if att == 'pos':
+            pos = i
+            continue
+        header.append(att)
+
+    tuples = []
+    for tup in line['table'][1:]:
+        newtup = []
+        for i, a in enumerate(tup):
+            if i != pos:
+                newtup.append(a)
+        tuples.append(newtup)
+    ###################################################################################
 
     # Concatenate all non-temporal attributes as description above the line
     attribs = r" & ".join(header)
@@ -940,6 +977,32 @@ TEMPLATE_LATEX_TIKZTABLETOP = r"""
     \label{{fig:{label}}}
 \end{{figure}}
 """
+
+class Relation:
+    values = []
+    schema = []
+    meta = {}
+    currTuple = -1
+
+    def addTuple(self, tup):
+        if len(tup) == len(self.schema):
+            self.values.append(tup)
+
+    def addColumn(self, name):
+        self.schema.append(name)
+
+    def addMeta(self, name, value):
+        self.meta[name] = value
+
+    def setSchema(self, schema):
+        self.schema = schema
+
+    def getDefault(self, name, default):
+        try:
+            return self.get(name)
+        except:
+            return default
+
 
 if __name__ == '__main__':
     main()
