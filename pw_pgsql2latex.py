@@ -386,47 +386,41 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
 
     template = TEMPLATE_TIKZ_TUPLE
 
-    if 'teattnum' in cfg:
-        valid_time_ts = int(tup[cfg['tsattnum']])
-        valid_time_te = int(tup[cfg['teattnum']])
+    relation = cfg['relation']
+
+    if relation.teid != -1:
+        valid_time_ts = int(relation.getTupleTS(tup))
+        valid_time_te = int(relation.getTupleTE(tup))
     else:
         # Parse range types, we ignore boundary types for now...
-        match = re.search(r'.?(\d+),(\d+).?', tup[cfg['tsattnum']])
+        match = re.search(r'.?(\d+),(\d+).?', relation.getTupleTS(tup))
         if match:
             valid_time_ts = int(match.group(1))
             valid_time_te = int(match.group(2))
         else:
             # Single point detected: Generate point representation
-            valid_time_ts = int(tup[cfg['tsattnum']])
+            valid_time_ts = int(relation.getTupleTS(tup))
             valid_time_te = valid_time_ts + 1
             template = TEMPLATE_TIKZ_POINT
 #            print(valid_time_ts)
 
-    # Concatenate all non-temporal attributes as description above the line
+    # Concatenate all non-temporal (non-meta) attributes as description above the line
     attribs = ""
-    non_attribs = [
-        cfg['tsattnum'],
-        list_get(cfg, 'yposattnum', -1),
-        list_get(cfg, 'teattnum', -1)
-        ]
-
-    for key, value in enumerate(tup):
-        if key in non_attribs:
-            continue
+    for key, value in enumerate(relation.getTupleB(tup)):
         attribs += r"\mathrm{%s}," % value
 
     if len(attribs) == 0:
         out = template + "{{${name}_{{{id}}}$}};\n"
     else:
-        if cfg['name'] == "":
+        if relation.name == "":
             out = template + "{{$({attribs})$}};\n"
         else:
             out = template + "{{${name}_{{{id}}}=({attribs})$}};\n"
 
-    if 'yposattnum' in cfg:
-        count = float(tup[cfg['yposattnum']])
+    if relation.ypos != -1:
+        count = float(relation.getTupleYPOS(tup))
 
-    return out.format(name=cfg['name'],
+    return out.format(name=relation.name,
                       id=tuple_count,
                       ts=valid_time_ts,
                       te=valid_time_te,
@@ -583,8 +577,21 @@ def pgsql_parser(text):
                         raise_error("Not enough parameters for TIKZ relation or TIKZ relation-table given.\n" +
                                     "For example:\n--TIKZ: relation, R, ts, te, ypos, Description string\n" +
                                     "Instead the following was given: --" + token[1])
-                    configs_count_relation += 1
-                    configs.append(dict(zip(['type', 'name', 'ts', 'te', 'ypos', 'desc'], listitems)))
+
+                    if configs_count_relation < table_count:
+                        relation = tables[table_count]
+                    else:
+                        relation = Relation()
+                        tables.append(relation)
+                        configs_count_relation += 1
+
+                    relation.name = listitems[1]
+                    relation.tsname = listitems[2]
+                    relation.tename = listitems[3]
+                    relation.yposname = listitems[4]
+                    relation.desc = listitems[5]
+
+                    configs.append({'type' : listitems[0], 'relation' : relation})
 
                 elif comment_type == 'timeline':
                     if configs_count_timeline == 1:
@@ -606,10 +613,17 @@ def pgsql_parser(text):
                         configs_count_timeline += 1
                         configs.append(dict(zip(['type', 'from', 'to', 'step', 'desc'], listitems)))
         elif token[0] == 'HEADER':
-            tables.append([token[1]])
-            table_count = len(tables) - 1
+            if configs_count_relation > table_count:
+                relation = tables[table_count]
+            else:
+                relation = Relation()
+                tables.append(relation)
+                table_count += 1
+            relation.setSchema(token[1])
+
         elif token[0] == 'TUPLE':
-            tables[table_count].append(token[1])
+            relation = tables[table_count]
+            relation.addTuple(token[1])
 
     if configs_count_relation == 0:
         raise_error(
@@ -633,26 +647,13 @@ def pgsql_parser(text):
             "-- TIKZ: relation, table_name, ts, te, relation description")
 
     # Add tables (with header and tuples) to the config dictionary
-    table_count = 0
-    for cfg in configs:
-        if cfg['type'] in ['relation', 'relation-table']:
-            cfg['table'] = tables[table_count]
-            table_count += 1
-
-            # Find attribute numbers (i.e., column indexes) for temporal
-            # attributes
-            for attnum, column in enumerate(cfg['table'][0]):
-                if cfg['ts'] == column:
-                    cfg['tsattnum'] = attnum
-                elif cfg['te'] == column:
-                    cfg['teattnum'] = attnum
-                elif cfg['ypos'] == column:
-                    cfg['yposattnum'] = attnum
-
-            # Only check for the first temporal attribute, if the second is missing,
-            # it means that "ts" contains a range type.
-            if not 'tsattnum' in cfg:
-                raise_error("Temporal attribute '%s' not found in table header %s" % (cfg['ts'], cfg['table'][0]))
+#    table_count = 0
+#    for cfg in configs:
+#        if cfg['type'] in ['relation', 'relation-table']:
+#            relation = cfg['table'] = tables[table_count]
+#            table_count += 1
+#
+#            relation.setMetaData(cfg['ts'], cfg['te'], cfg['ypos'])
 
     return configs
 
@@ -670,20 +671,21 @@ def format_tikz_figure(parse_result, cfg):
     for line in parse_result:
         if line['type'] == 'timeline':
             break
-        if 'yposattnum' in line:
-            m = 1.0
-            ypos = line['yposattnum']
-            for v in line['table'][1:]:
-                if m < float(v[ypos]):
-                    m = float(v[ypos])
-            count_above += m + 1
-        else:
-            count_above += len(line['table']) - 1
+
+        if 'relation' in line:
+            relation = line['relation']
+            if relation.ypos != -1:
+                m = 1.0
+                ypos = relation.ypos
+                for v in relation.values:
+                    if m < float(v[ypos]):
+                        m = float(v[ypos])
+                count_above += m + 1
+            else:
+                count_above += relation.getLength() - 1
 
     posy = count_above
     out = ""
-
-    print(posy)
 
     xscale = list_get(cfg, 'xscale', 0.65)
     yscale = list_get(cfg, 'yscale', 0.4)
@@ -700,17 +702,17 @@ def format_tikz_figure(parse_result, cfg):
             posy = -2
             continue
 
-        # Print description on the left-hand-side of each relation
-        if line['desc'].strip() != "":
-            out += format_tikz_desc(posy - (len(line['table']) - 1) / 2, line['desc'])
+        relation = line['relation']
 
-        # We skip the first element inside a table. It is the header.
-        table = line['table'][1:]
+        # Print description on the left-hand-side of each relation
+        if relation.desc.strip() != "":
+            out += format_tikz_desc(posy - (relation.getLength() - 1) / 2, relation.desc)
+
 
         # Print tuples of each table as lines from ts to te. The description of
         # each tuple is a list of explicit attributes (i.e., non-temporal
         # columns), and optionally a tuple identifier "relation_tuplecount"
-        for tuple_count, tup in enumerate(table, 1):
+        for tuple_count, tup in enumerate(relation.values, 1):
             out += format_tikz_tupleline(tup, line, tuple_count, posy)
             posy -= 1
 
@@ -737,40 +739,23 @@ def format_latex_table(line, label, table_type=1):
         raise_error("Latex Print Table: Provided config-line has wrong " \
                         "type '%s' (type 'relation' expected)" % line['type'])
 
+    relation = line['relation']
+
     # We skip the first element inside a table. It is the header.
-#    tuples = line['table'][1:]
-#    header = line['table'][0]
-
-    ###################################################################################
-    # FIXME fast hack for thesis
-    pos = -1
-    header = []
-    for i, att in enumerate(line['table'][0]):
-        if att == 'pos':
-            pos = i
-            continue
-        header.append(att)
-
-    tuples = []
-    for tup in line['table'][1:]:
-        newtup = []
-        for i, a in enumerate(tup):
-            if i != pos:
-                newtup.append(a)
-        tuples.append(newtup)
-    ###################################################################################
+    header = relation.getSchemaTemporal()
+    tuples = relation.getTuplesTB()
 
     # Concatenate all non-temporal attributes as description above the line
     attribs = r" & ".join(header)
     rows = ""
     for row_count, row in enumerate(tuples, 1):
-        rows += " " * 12 + "$%s_{%d}$ & %s \\\\\n" % (line['name'],
+        rows += " " * 12 + "$%s_{%d}$ & %s \\\\\n" % (relation.name,
                                          row_count,
                                          r" & ".join(row))
 
     if table_type == 1:
         return TEMPLATE_LATEX_TABLE.format(
-                caption=line['desc'],
+                caption=relation.desc,
                 label=label,
                 length=len(header) + 1,
                 header_cfg="c" * len(header),
@@ -782,13 +767,13 @@ def format_latex_table(line, label, table_type=1):
                     header_cfg="c" * len(header),
                     header=attribs.rstrip(" &"),
                     rows=rows.rstrip("\n"),
-                    relation=line['name'])
+                    relation=relation.name)
 
     return TEMPLATE_LATEX_TABLETOP.format(
                 header_cfg="c" * len(header),
                 header=attribs.rstrip(" &"),
                 rows=rows.rstrip("\n"),
-                relation=line['name'])
+                relation=relation.name)
 
 
 
@@ -978,30 +963,92 @@ TEMPLATE_LATEX_TIKZTABLETOP = r"""
 \end{{figure}}
 """
 
+RELATION_TYPE_INTERVAL = 0
+RELATION_TYPE_POINT    = 1
+
 class Relation:
-    values = []
-    schema = []
-    meta = {}
-    currTuple = -1
+    def __init__(self):
+        self.schema = []
+        self.values = []
+        self.tsid = -1
+        self.teid = -1
+        self.ypos = -1
+        self.tsname = ""
+        self.tename = ""
+        self.yposname = ""
+        self.name = ""
+        self.relType = RELATION_TYPE_INTERVAL
+
+    def setSchema(self, schema):
+        self.schema = schema
 
     def addTuple(self, tup):
         if len(tup) == len(self.schema):
             self.values.append(tup)
+        else:
+            raise_error("Too many tuple columns for the actual schema: " + self.schema)
 
-    def addColumn(self, name):
-        self.schema.append(name)
+    def getTupleTS(self, tup):
+        return tup[self.tsid]
 
-    def addMeta(self, name, value):
-        self.meta[name] = value
+    def getTupleTE(self, tup):
+        return tup[self.teid]
 
-    def setSchema(self, schema):
-        self.schema = schema
+    def getTupleYPOS(self, tup):
+        return tup[self.ypos]
+
+    def getTupleB(self, tup):
+        result = []
+        for i, a in enumerate(tup):
+            if i == self.tsid or i == self.teid or i == self.ypos:
+                continue
+            result.append(a)
+        return result
+
+    def getTupleTB(self, tup):
+        result = []
+        for i, a in enumerate(tup):
+            if i == self.ypos:
+                continue
+            result.append(a)
+        return result
+
+    def getTuplesTB(self):
+        for tup in self.values:
+            yield self.getTupleTB(tup)
+
+    def getSchemaTemporal(self):
+        result = []
+        for i, a in enumerate(self.schema):
+            if i == self.ypos:
+                continue
+            result.append(a)
+        return result
+
+    def getLength(self):
+        return len(self.values)
 
     def getDefault(self, name, default):
         try:
             return self.get(name)
         except:
             return default
+
+    def setMetaData(self, tsname, tename, yposname):
+        # Find attribute numbers (i.e., column indexes) for temporal
+        # attributes
+        for attnum, column in enumerate(self.schema):
+            if tsname == column:
+                self.tsid = attnum
+            elif tename == column:
+                self.teid = attnum
+            elif yposname == column:
+                self.ypos = attnum
+
+        # Only check for the first temporal attribute, if the second is missing,
+        # it means that "ts" contains a range type.
+        if self.tsid == -1:
+            raise_error("Temporal attribute '%s' not found in table header %s" % (tsname, self.schema))
 
 
 if __name__ == '__main__':
