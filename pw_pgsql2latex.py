@@ -541,7 +541,7 @@ def pgsql_parser(text):
 
     configs = []
     tables = []
-    table_count = 0
+    table_count = 0     # How many table with header and tuples have been found in the input?
     configs_count_relation = 0
     configs_count_timeline = 0
 
@@ -575,7 +575,8 @@ def pgsql_parser(text):
                     else:
                         relation = Relation()
                         tables.append(relation)
-                        configs_count_relation += 1
+
+                    configs_count_relation += 1
 
                     relation.setMetaData(listitems[1:])
 
@@ -606,11 +607,13 @@ def pgsql_parser(text):
             else:
                 relation = Relation()
                 tables.append(relation)
-                table_count += 1
+
+            table_count += 1
+
             relation.setSchema(token[1])
 
         elif token[0] == 'TUPLE':
-            relation = tables[table_count]
+            relation = tables[table_count - 1]
             relation.addTuple(token[1])
 
     if configs_count_relation == 0:
@@ -633,15 +636,6 @@ def pgsql_parser(text):
             "an additional SQL-command to produce a table output.\n" +
             "For example:\n" +
             "-- TIKZ: relation, table_name, ts, te, relation description")
-
-    # Add tables (with header and tuples) to the config dictionary
-#    table_count = 0
-#    for cfg in configs:
-#        if cfg['type'] in ['relation', 'relation-table']:
-#            relation = cfg['table'] = tables[table_count]
-#            table_count += 1
-#
-#            relation.setMetaData(cfg['ts'], cfg['te'], cfg['ypos'])
 
     return configs
 
@@ -668,7 +662,7 @@ def format_tikz_figure(parse_result, cfg):
                 for v in relation.values:
                     if m < float(v[ypos]):
                         m = float(v[ypos])
-                count_above += m + 1
+                count_above += m - 1
             else:
                 count_above += relation.getLength() - 1
 
@@ -694,7 +688,8 @@ def format_tikz_figure(parse_result, cfg):
 
         # Print description on the left-hand-side of each relation
         if relation.desc.strip() != "":
-            out += format_tikz_desc(posy - (relation.getLength() - 1) / 2, relation.desc)
+            # TODO Find offset if ypos is given relation.getLength() will not work
+            out += format_tikz_desc(posy - relation.getLength() / 2, relation.desc)
 
 
         # Print tuples of each table as lines from ts to te. The description of
@@ -712,8 +707,7 @@ def format_latex_header(raw_data):
     return TEMPLATE_HEADER.format(
                 appname=os.path.basename(__file__),
                 appversion=__version__,
-                input="".join("%% %s\n" % x
-                              for x in raw_data.strip().split("\n")))
+                input="".join("%% %s\n" % x for x in raw_data.strip().split("\n")))
 
 def format_latex_standalone(figure):
     """Creates a TIKZ standalone latex document"""
@@ -967,14 +961,25 @@ class Relation:
         self.name = ""
         self.relType = RELATION_TYPE_INTERVAL
 
+    def __findSchemaIds__(self):
+        for i, a in enumerate(self.schema):
+            if a == self.tsname:
+                self.tsid = i
+            elif a == self.tename:
+                self.teid = i
+            elif a == self.yposname:
+                self.ypos = i
+
     def setSchema(self, schema):
         self.schema = schema
+        self.__findSchemaIds__()
+
 
     def addTuple(self, tup):
         if len(tup) == len(self.schema):
             self.values.append(tup)
         else:
-            raise_error("Too many tuple columns for the actual schema: " + self.schema)
+            raise_error("Too many tuple columns for the actual schema: " + ", ".join(self.schema))
 
     def getTupleTS(self, tup):
         return self.getTupleT(tup)[0]
@@ -1042,6 +1047,7 @@ class Relation:
         self.tename = listitems[2]
         self.yposname = listitems[3]
         self.desc = listitems[4]
+        self.__findSchemaIds__()
 
 if __name__ == '__main__':
     main()
