@@ -399,15 +399,15 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
     # Concatenate all non-temporal (non-meta) attributes as description above the line
     attribs = ""
     for key, value in enumerate(relation.getTupleB(tup)):
-        attribs += r"\mathrm{%s}," % value
+        attribs += r"%s," % value
 
     if len(attribs) == 0:
         out = template + "{{${name}_{{{id}}}$}};\n"
     else:
         if relation.name == "":
-            out = template + "{{$({attribs})$}};\n"
+            out = template + "{{({attribs})}};\n"
         else:
-            out = template + "{{${name}_{{{id}}}=({attribs})$}};\n"
+            out = template + "{{${name}_{{{id}}}$=({attribs})}};\n"
 
     if relation.ypos != -1:
         count = float(relation.getTupleYPOS(tup))
@@ -653,18 +653,9 @@ def format_tikz_figure(parse_result, cfg):
     for line in parse_result:
         if line['type'] == 'timeline':
             break
-
         if 'relation' in line:
             relation = line['relation']
-            if relation.ypos != -1:
-                m = 1.0
-                ypos = relation.ypos
-                for v in relation.values:
-                    if m < float(v[ypos]):
-                        m = float(v[ypos])
-                count_above += m - 1
-            else:
-                count_above += relation.getLength() - 1
+            count_above += relation.getYMax()
 
     posy = count_above
     out = ""
@@ -678,8 +669,12 @@ def format_tikz_figure(parse_result, cfg):
         if line['type'] not in ['timeline', 'relation', 'relation-table']:
             continue
 
+        print(posy)
+
+
         # Print the timeline
         if line['type'] == 'timeline':
+            print("TL")
             out += format_tikz_timeline(line)
             posy = -2
             continue
@@ -900,7 +895,7 @@ TEMPLATE_LATEX_TABLE2 = r"""
 """
 
 TEMPLATE_LATEX_TIKZTABLE = r"""
-\begin{{figure}}[!ht]
+\begin{{figure}}[htb]
     \centering
     \hfill
     \begin{{subfigure}}[c]{{{subfigureleft}\textwidth}}
@@ -925,7 +920,7 @@ TEMPLATE_LATEX_TABLETOP = r"""
 """
 
 TEMPLATE_LATEX_TIKZTABLETOP = r"""
-\begin{{figure}}[!ht]
+\begin{{figure}}[htb]
     \centering
     \begin{{subfigure}}{{\textwidth}}
     \centering
@@ -960,6 +955,8 @@ class Relation:
         self.yposname = ""
         self.name = ""
         self.relType = RELATION_TYPE_INTERVAL
+        self._ymax = -1
+        self._ymin = -1
 
     def __findSchemaIds__(self):
         for i, a in enumerate(self.schema):
@@ -969,6 +966,30 @@ class Relation:
                 self.teid = i
             elif a == self.yposname:
                 self.ypos = i
+
+    def __findYRange__(self):
+        if self.ypos == -1:
+            self._ymin = 0
+            self._ymax = len(self.values)
+            return
+        self._ymin = 0
+        self._ymax = 0
+        for tup in self.values:
+            self._ymin = min(self._ymin, int(tup[self.ypos]))
+            self._ymax = max(self._ymax, int(tup[self.ypos]))
+
+    def getYMin(self):
+        if self._ymin == -1:
+            self.__findYRange__()
+
+        return self._ymin
+
+    def getYMax(self):
+        if self._ymax == -1:
+            self.__findYRange__()
+
+        return self._ymax
+
 
     def setSchema(self, schema):
         self.schema = schema
