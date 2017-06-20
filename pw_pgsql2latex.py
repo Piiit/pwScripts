@@ -381,12 +381,12 @@ def format_tikz_desc(pos, desc):
                                      desc=desc)
 
 
-def format_tikz_tupleline(tup, cfg, tuple_count, count):
+def format_tikz_tupleline(tup, relation, tupid, ypos):
     """Prints the tuple time lines in a standalone tikz figure"""
 
-    template = TEMPLATE_TIKZ_TUPLE
+    print(ypos)
 
-    relation = cfg['relation']
+    template = TEMPLATE_TIKZ_TUPLE
 
     valid_time_ts = relation.getTupleTS(tup)
     valid_time_te = relation.getTupleTE(tup)
@@ -401,6 +401,8 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
     for key, value in enumerate(relation.getTupleB(tup)):
         attribs += r"%s," % value
 
+    print(attribs, ypos)
+
     if len(attribs) == 0:
         out = template + "{{${name}_{{{id}}}$}};\n"
     else:
@@ -409,19 +411,15 @@ def format_tikz_tupleline(tup, cfg, tuple_count, count):
         else:
             out = template + "{{${name}_{{{id}}}$=({attribs})}};\n"
 
-    if relation.ypos != -1:
-        count = float(relation.getTupleYPOS(tup))
-
     return out.format(name=relation.name,
-                      id=tuple_count,
+                      id=tupid,
                       ts=valid_time_ts,
                       te=valid_time_te,
-                      count=count,
                       posx=float(valid_time_ts+valid_time_te) / 2,
-                      posy=count - 0.2,
+                      posy=ypos,
                       attribs=attribs.rstrip(','))
 
-def format_tikz_timeline(cfg):
+def format_tikz_timeline(cfg, pos):
     """Prints a timeline in a standalone tikz figure"""
 #    pos_numbers = 0
 #    if 'inclusive' in cfg and cfg['inclusive']:
@@ -433,13 +431,15 @@ def format_tikz_timeline(cfg):
                                               end=int(cfg['to']),
                                               step=int(cfg['step']),
                                               desc=cfg['desc'],
-                                              posno=pos_numbers)
+                                              posno=pos_numbers,
+                                              pos=pos)
 
 
     return TEMPLATE_TIKZ_TIMELINE.format(start=int(cfg['from']),
                                          end=int(cfg['to']),
                                          desc=cfg['desc'],
-                                         posno=pos_numbers)
+                                         posno=pos_numbers,
+                                         pos=pos)
 
 def raise_error(msg, hint=""):
     """Print an error message and a hint to solve the issue. The text is
@@ -649,50 +649,45 @@ def format_tikz_figure(parse_result, cfg):
     # backwards while creating lines above the timeline. However, it is not
     # necessary below, because there we count starting from 1, s.t., the
     # index 1 is always close to the timeline in the middle.
-    count_above = 0
-    for line in parse_result:
-        if line['type'] == 'timeline':
-            break
-        if 'relation' in line:
-            relation = line['relation']
-            count_above += relation.getYMax()
-
-    posy = count_above
+    posy = 0
     out = ""
 
     xscale = list_get(cfg, 'xscale', 0.65)
     yscale = list_get(cfg, 'yscale', 0.4)
 
+    offset = 0
     for line in parse_result:
-
-        # Only these configuration lines are allowed, skip all others...
-        if line['type'] not in ['timeline', 'relation', 'relation-table']:
-            continue
-
-        print(posy)
-
 
         # Print the timeline
         if line['type'] == 'timeline':
-            print("TL")
-            out += format_tikz_timeline(line)
-            posy = -2
+            iout = format_tikz_timeline(line, offset)
+            offset -= 2
+            out += iout
             continue
 
-        relation = line['relation']
+        if line['type'] in ['relation', 'relation-table']:
+            relation = line['relation']
 
-        # Print description on the left-hand-side of each relation
-        if relation.desc.strip() != "":
-            # TODO Find offset if ypos is given relation.getLength() will not work
-            out += format_tikz_desc(posy - relation.getLength() / 2, relation.desc)
+            # Print tuples of each table as lines from ts to te. The description of
+            # each tuple is a list of explicit attributes (i.e., non-temporal
+            # columns), and optionally a tuple identifier "relation_tuplecount"
+            posy = offset
+            print("Before: %d" % posy)
+            for tuple_count, tup in enumerate(relation.values, 1):
+                if relation.ypos != -1:
+                    posy = offset + float(relation.getTupleYPOS(tup) - relation.getYMax())
+                iout = format_tikz_tupleline(tup, relation, tuple_count, posy)
+                posy -= 1
+                out += iout
 
+            offset = offset - (relation.getYMax() - relation.getYMin()) - 2
+            print("offset: %d" % offset)
 
-        # Print tuples of each table as lines from ts to te. The description of
-        # each tuple is a list of explicit attributes (i.e., non-temporal
-        # columns), and optionally a tuple identifier "relation_tuplecount"
-        for tuple_count, tup in enumerate(relation.values, 1):
-            out += format_tikz_tupleline(tup, line, tuple_count, posy)
-            posy -= 1
+            # Print description on the left-hand-side of each relation
+            if relation.desc.strip() != "":
+                p = (offset + 2) + (relation.getYMax() - relation.getYMin())  / 2
+                print("P = %f" % p)
+                out += format_tikz_desc(p, relation.desc)
 
     return TEMPLATE_TIKZ_PICTURE.format(content=out, xscale=xscale, yscale=yscale)
 
@@ -833,39 +828,39 @@ TEMPLATE_TIKZ_DESC = r"""
 # Regular timeline representation with a number on each step
 TEMPLATE_TIKZ_TIMELINE = r"""
         % Time line
-        \draw[->, line width = 0.9] ({start},0)--({end}+1,0);
+        \draw[->, line width = 0.9] ({start},{pos})--({end}+1,{pos});
         \foreach \t in {{{start},...,{end}}}
         {{
-            \draw ($(\t cm,-1mm)+(0cm,0)$)--($(\t cm,1mm)+(0cm,0)$);
-            \draw ($(\t {posno}mm,0.5mm)$) node[below,font=\scriptsize \bfseries]{{\t}};
+            \draw ($(\t cm,-1mm)+(0cm,{pos})$)--($(\t cm,1mm)+(0cm,{pos})$);
+            \draw ($(\t {posno}mm,{pos})$) node[below,font=\scriptsize \bfseries]{{\t}};
         }}
-        \draw ($({end}+1,0)+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
+        \draw ($({end}+1,{pos})+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
 """
 
 # Time line with number at each {step}.
 TEMPLATE_TIKZ_TIMELINE2 = r"""
         % Time line
-        \draw[->, line width = 0.9] ({start},0)--({end}+1,0);
+        \draw[->, line width = 0.9] ({start},{pos})--({end}+1,{pos});
         \foreach \t in {{{start},...,{end}}}
         {{
-            \draw ($(\t cm,-1mm)+(0cm,0)$)--($(\t cm,1mm)+(0cm,0)$);
+            \draw ($(\t cm,-1mm)+(0cm,{pos})$)--($(\t cm,1mm)+(0cm,{pos})$);
             \pgfmathparse{{Mod(\t, {step}) == 0 ? 1 : 0}}
             \ifnum\pgfmathresult>0
-            	  \draw ($(\t {posno}mm,0.5mm)$) node[below,font=\scriptsize \bfseries]{{\t}};
+            	  \draw ($(\t {posno}mm,{pos})$) node[below,font=\scriptsize \bfseries]{{\t}};
             \fi
         }}
-        \draw ($({end}+1,0)+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
+        \draw ($({end}+1,{pos})+(3mm,-1mm)$) node[below,font=\bfseries]{{$\mathrm{{{desc}}}$}};
 """
 
 TEMPLATE_TIKZ_TUPLE = r"""
         % Tuple {name}_{id}
-        \draw[-] ({ts},{count})--({te},{count});
-        \draw[-] ({posx},{posy}) node[above,font=\tiny]"""
+        \draw[-] ({ts},{posy})--({te},{posy});
+        \draw[-] ({posx},{posy}-0.2) node[above,font=\tiny]"""
 
 TEMPLATE_TIKZ_POINT = r"""
         % Point {name}_{id}
-        \draw ({ts}+0.5,{count}) node[cross] {{}};
-        \draw[-] ({posx},{posy}) node[above,font=\tiny]"""
+        \draw ({ts}+0.5,{posy}) node[cross] {{}};
+        \draw[-] ({posx},{posy}-0.2) node[above,font=\tiny]"""
 
 
 TEMPLATE_LATEX_TABLE = r"""
@@ -897,7 +892,7 @@ TEMPLATE_LATEX_TABLE2 = r"""
 TEMPLATE_LATEX_TIKZTABLE = r"""
 \begin{{figure}}[htb]
     \centering
-    \hfill
+    \hfills = []
     \begin{{subfigure}}[c]{{{subfigureleft}\textwidth}}
 {table}
     \end{{subfigure}}
@@ -957,6 +952,7 @@ class Relation:
         self.relType = RELATION_TYPE_INTERVAL
         self._ymax = -1
         self._ymin = -1
+        self._offset = 0
 
     def __findSchemaIds__(self):
         for i, a in enumerate(self.schema):
@@ -972,11 +968,15 @@ class Relation:
             self._ymin = 0
             self._ymax = len(self.values)
             return
-        self._ymin = 0
+        self._ymin = 1000000
         self._ymax = 0
         for tup in self.values:
             self._ymin = min(self._ymin, int(tup[self.ypos]))
             self._ymax = max(self._ymax, int(tup[self.ypos]))
+
+#        self._offset = self._ymax - self._ymin
+#        self._ymax -= self._offset
+#        self._ymin -= self._offset
 
     def getYMin(self):
         if self._ymin == -1:
