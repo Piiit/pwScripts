@@ -384,8 +384,6 @@ def format_tikz_desc(pos, desc):
 def format_tikz_tupleline(tup, relation, tupid, ypos):
     """Prints the tuple time lines in a standalone tikz figure"""
 
-    print(ypos)
-
     template = TEMPLATE_TIKZ_TUPLE
 
     valid_time_ts = relation.getTupleTS(tup)
@@ -400,8 +398,6 @@ def format_tikz_tupleline(tup, relation, tupid, ypos):
     attribs = ""
     for key, value in enumerate(relation.getTupleB(tup)):
         attribs += r"%s," % value
-
-    print(attribs, ypos)
 
     if len(attribs) == 0:
         out = template + "{{${name}_{{{id}}}$}};\n"
@@ -652,8 +648,9 @@ def format_tikz_figure(parse_result, cfg):
     posy = 0
     out = ""
 
-    xscale = list_get(cfg, 'xscale', 0.65)
-    yscale = list_get(cfg, 'yscale', 0.4)
+    xscale = float(list_get(cfg, 'xscale', 0.65))
+    yscale = float(list_get(cfg, 'yscale', 0.4))
+    ystep = float(list_get(cfg, 'ystep', 1))
 
     offset = 0
     for line in parse_result:
@@ -672,21 +669,17 @@ def format_tikz_figure(parse_result, cfg):
             # each tuple is a list of explicit attributes (i.e., non-temporal
             # columns), and optionally a tuple identifier "relation_tuplecount"
             posy = offset
-            print("Before: %d" % posy)
             for tuple_count, tup in enumerate(relation.values, 1):
                 if relation.ypos != -1:
                     posy = offset + float(relation.getTupleYPOS(tup) - relation.getYMax())
-                iout = format_tikz_tupleline(tup, relation, tuple_count, posy)
+                out += format_tikz_tupleline(tup, relation, tuple_count, posy)
                 posy -= 1
-                out += iout
 
-            offset = offset - (relation.getYMax() - relation.getYMin()) - 2
-            print("offset: %d" % offset)
+            offset = offset - (relation.getYMax() - relation.getYMin()) - ystep
 
             # Print description on the left-hand-side of each relation
             if relation.desc.strip() != "":
-                p = (offset + 2) + (relation.getYMax() - relation.getYMin())  / 2
-                print("P = %f" % p)
+                p = (offset + ystep) + (relation.getYMax() - relation.getYMin())  / 2
                 out += format_tikz_desc(p, relation.desc)
 
     return TEMPLATE_TIKZ_PICTURE.format(content=out, xscale=xscale, yscale=yscale)
@@ -966,7 +959,7 @@ class Relation:
     def __findYRange__(self):
         if self.ypos == -1:
             self._ymin = 0
-            self._ymax = len(self.values)
+            self._ymax = len(self.values) - 1
             return
         self._ymin = 1000000
         self._ymax = 0
@@ -974,27 +967,19 @@ class Relation:
             self._ymin = min(self._ymin, int(tup[self.ypos]))
             self._ymax = max(self._ymax, int(tup[self.ypos]))
 
-#        self._offset = self._ymax - self._ymin
-#        self._ymax -= self._offset
-#        self._ymin -= self._offset
-
     def getYMin(self):
         if self._ymin == -1:
             self.__findYRange__()
-
         return self._ymin
 
     def getYMax(self):
         if self._ymax == -1:
             self.__findYRange__()
-
         return self._ymax
-
 
     def setSchema(self, schema):
         self.schema = schema
         self.__findSchemaIds__()
-
 
     def addTuple(self, tup):
         if len(tup) == len(self.schema):
