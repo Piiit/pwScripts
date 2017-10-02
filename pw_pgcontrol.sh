@@ -220,8 +220,9 @@ while true; do
             exit $?
         ;;
         -l | --load)
+            loadINI
             checkArguments $# 3 "$1: no database name and/or data-file specified!"
-            $BUILD/bin/psql -p $PORT -h localhost -d $2 -f $3
+            $BUILD/bin/psql -p $PORT -h localhost -d $2 -f $4
             exit $?
         ;;
         -t | --test)
