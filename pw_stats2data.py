@@ -66,7 +66,7 @@ def main():
 
                     try:
                         cells = line.split("\t")
-                        algo = cells[0]
+                        algo = os.path.basename(cells[0])
 
                         if not algo in algorithms:
                             algorithms.append(algo)
