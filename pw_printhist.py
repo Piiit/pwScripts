@@ -21,8 +21,9 @@ def main():
         print("       input     filename of a temporal data file (TSV)")
         print("       prefix    filename prefix for results, i.e., prefix-TYPE.tsv")
         print()
-        print("   TYPE is on of the following:")
+        print("   TYPE is one of the following:")
         print("       start     start points histogram output")
+        print("       end       ending points histogram output")
         print("       duration  duration histogram output")
         print("       overlap   concurrent overlapping tuples histogram output")
         sys.exit(1)
@@ -30,6 +31,7 @@ def main():
     inputf = sys.argv[1]
     prefix = sys.argv[2]
     startf = prefix + "-start.csv"
+    endingf = prefix + "-end.csv"
     durationf = prefix + "-duration.csv"
     overlapf = prefix + "-overlap.csv"
 
@@ -46,12 +48,15 @@ def main():
             statistics['lengths'].append(line[1] - line[0])
             if len(line) > 2:
                 for i, d in enumerate(line[2:]):
+                    if not 'data%02d' % i in statistics:
+                        statistics['data%02d' % i] = []
                     statistics['data%02d' % i].append(d)
 
     domainstart = min(statistics['starts'])
     domainend = max(statistics['ends'])
     domainlength = domainend - domainstart
     bucketlength = math.ceil(domainlength / BUCKETCOUNT)
+    n = len(statistics['starts'])
 
     # Find concurrently open intervals
     START = 0
@@ -76,23 +81,29 @@ def main():
         else:
             overlaps -= 1
     openints[BUCKETCOUNT - 1] = maxoverlaps
+    print("OVERLAPS       -- " + statsToString(openints))
+    openints = [x * 100 / n for x in openints]
     printHistogram(range(1, BUCKETCOUNT + 1), openints, overlapf)
 
     # Create start-points histogram in percentage
-    startmaxp = domainend / 100
-    statistics['starts'] = [x / startmaxp for x in statistics['starts']]
-    freq, bins, _ = plt.hist(statistics['starts'], BUCKETCOUNT, lw=0, label='start points')
-    freq = [x / len(freq) / 100 for x in freq]
-    print("START POINTS -- " + statsToString(statistics['starts']))
+    freq, bins, _ = plt.hist(statistics['starts'], BUCKETCOUNT)
+    bins = [(x - domainstart) * 100 / domainlength for x in bins]
+    freq = [x * 100 / n for x in freq]
+    print("START POINTS   -- " + statsToString(statistics['starts']))
+    printHistogram(bins, freq, endingf)
+
+    # Create ending-points histogram in percentage
+    freq, bins, _ = plt.hist(statistics['ends'], BUCKETCOUNT)
+    bins = [(x - domainstart) * 100 / domainlength for x in bins]
+    freq = [x * 100 / n for x in freq]
+    print("ENDING POINTS  -- " + statsToString(statistics['ends']))
     printHistogram(bins, freq, startf)
 
     # Create duration histogram in percentage
-    statistics['lengths'] = [x / domainlength for x in statistics['lengths']]
-    freq, bins, _ = plt.hist(statistics['lengths'], BUCKETCOUNT, lw=0, label='duration')#, range=[10**7-1,10**7])
-#    print(freq, bins)
-#    bins = [x / len(bins) / 100 for x in bins]
-#    print(freq, bins)
-    print("DURATION -- " + statsToString(statistics['lengths']))
+    freq, bins, _ = plt.hist(statistics['lengths'], BUCKETCOUNT)
+    bins = [x * 100 / domainlength for x in bins]
+    freq = [x * 100 / n for x in freq]
+    print("DURATION       -- " + statsToString(statistics['lengths']))
     printHistogram(bins, freq, durationf)
 
     print("READY.")

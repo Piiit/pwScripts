@@ -10,6 +10,10 @@ import sys
 import re
 import os
 
+def natural_sort_key(s, _nsre=re.compile('([0-9]+)')):
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split(_nsre, s)]
+
 def main():
 
     if len(sys.argv) <= 2:
@@ -82,6 +86,8 @@ def main():
             except:
                 continue
 
+
+
     # Print header
     print(parameterName, end='')
     for a in algorithms:
@@ -89,12 +95,14 @@ def main():
     print()
 
     # Print data lines (first field = varying parameter)
-    for parameter in parameters:
+    for parameter in sorted(parameters, key=natural_sort_key):
         print(parameter + "\t", end='')
         res = results[parameter]
+#        print(parameter)
+#        print(res)
         for a in algorithms:
             if a in res:
-                print("%d\t" % res[a][0], end='')
+                print("%d\t" % int(float(res[a][0]) / res[a][1]), end='')
             else:
                 print("nan\t", end='')
         print()
