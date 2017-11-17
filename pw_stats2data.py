@@ -14,6 +14,10 @@ def natural_sort_key(s, _nsre=re.compile('([0-9]+)')):
     return [int(text) if text.isdigit() else text.lower()
             for text in re.split(_nsre, s)]
 
+def printErrorAndExit(msg):
+    print("ERROR: " + msg, file=sys.stderr, flush=True)
+    sys.exit(1)
+
 def main():
 
     if len(sys.argv) <= 2:
@@ -42,8 +46,7 @@ def main():
         filename = os.path.splitext(os.path.basename(arg))[0]
         m = re.match(r"%s([a-zA-Z]+)([0-9\.]+).*" % prefix, filename)
         if not m:
-            print("ERROR: Prefix does not match with filename")
-            sys.exit(1)
+            printErrorAndExit("ERROR: Prefix does not match with filename")
 
         parameterName = m.groups()[0]
         parameterValue = m.groups()[1]
@@ -51,8 +54,7 @@ def main():
         if oldParameterName == None:
             oldParameterName = parameterName
         elif parameterName != oldParameterName:
-            print("ERROR: Parameter name mismatch. First it was '%s', then '%s'." % (oldParameterName, parameterName))
-            sys.exit(1)
+            printErrorAndExit("Parameter name mismatch. First it was '%s', then '%s'." % (oldParameterName, parameterName))
 
         if not parameterName in parameters:
             parameters.append(parameterValue)
@@ -60,17 +62,22 @@ def main():
         if not parameterValue in results:
             results[parameterValue] = {}
 
+        # Read the contents of the file
         with open(arg, 'r') as f:
-            headerDone = False
             try:
                 for line in f:
-                    if not headerDone:
-                        headerDone = True
-                        continue
-
                     try:
                         cells = line.split("\t")
+                        print(cells, file=sys.stderr)
                         algo = os.path.basename(cells[0])
+
+                        # We added timesplit to the results recently, hence result counts are at pos 7 now
+                        # Before that, they were at pos 6 (since pos 7 is a filename/path we can simply check casting
+                        # errors)
+                        try:
+                            resultCount = int(cells[7])
+                        except:
+                            resultCount = int(cells[6])
 
                         if not algo in algorithms:
                             algorithms.append(algo)
@@ -79,7 +86,7 @@ def main():
                             results[parameterValue][algo][0] += int(cells[1])
                             results[parameterValue][algo][1] += 1
                         else:
-                            results[parameterValue][algo] = [int(cells[1]), 1]
+                            results[parameterValue][algo] = [int(cells[1]), 1, resultCount]
                     except:
                         continue
                 results[parameterValue][algo][0] /= results[parameterValue][algo][1]
@@ -92,20 +99,29 @@ def main():
     print(parameterName, end='')
     for a in algorithms:
         print("\t%s" % a, end='')
-    print()
+    print("\tRESULTS")
 
     # Print data lines (first field = varying parameter)
+    resultCount = -1
     for parameter in sorted(parameters, key=natural_sort_key):
         print(parameter + "\t", end='')
         res = results[parameter]
 #        print(parameter)
 #        print(res)
+        try:
+            resultCount = res[algorithms[0]][2]
+        except:
+            printErrorAndExit("Algorithm %s not found in results." % algorithms[0])
+
         for a in algorithms:
             if a in res:
                 print("%d\t" % int(float(res[a][0]) / res[a][1]), end='')
+                if resultCount != res[a][2]:
+                    printErrorAndExit("Different result counts for the same parameter-value found!")
             else:
                 print("nan\t", end='')
-        print()
+
+        print("%d" % resultCount)
 
 if __name__ == '__main__':
     main()
