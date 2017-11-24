@@ -68,7 +68,6 @@ def main():
                 for line in f:
                     try:
                         cells = line.split("\t")
-                        print(cells, file=sys.stderr)
                         algo = os.path.basename(cells[0])
 
                         # We added timesplit to the results recently, hence result counts are at pos 7 now
