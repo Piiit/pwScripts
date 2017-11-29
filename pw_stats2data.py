@@ -15,7 +15,7 @@ def natural_sort_key(s, _nsre=re.compile('([0-9]+)')):
             for text in re.split(_nsre, s)]
 
 def printErrorAndExit(msg):
-    print("ERROR: " + msg, file=sys.stderr, flush=True)
+    print(os.path.basename(sys.argv[0]) + ": ERROR: " + msg, file=sys.stderr, flush=True)
     sys.exit(1)
 
 def main():
@@ -34,6 +34,11 @@ def main():
         sys.exit(0)
 
     # Collect data
+    # Results have the following hierarchy: parameterValue > algo > [runtimesum, experimentcount, resultcount]
+    # For example: parameterName = 'N' and the value is the cardinality, so we have a table as follows:
+    #    10     algoA    [10, 2, 200]
+    #           algoB    [...]
+    #    20     algoA    ...
     results = {}
     algorithms = []
     parameters = []
@@ -42,11 +47,14 @@ def main():
     prefix = sys.argv[1]
     for arg in sys.argv[2:]:
 
+        if not os.path.exists(arg):
+            printErrorAndExit("File '%s' does not exist." % arg)
+
         # Get the varying variable name and value from the filename
         filename = os.path.splitext(os.path.basename(arg))[0]
         m = re.match(r"%s([a-zA-Z]+)([0-9\.]+).*" % prefix, filename)
         if not m:
-            printErrorAndExit("ERROR: Prefix does not match with filename")
+            printErrorAndExit("Prefix '%s' does not match with filename '%s'. At least one letter must be left as parameter name." % (prefix, filename))
 
         parameterName = m.groups()[0]
         parameterValue = m.groups()[1]
@@ -61,6 +69,8 @@ def main():
 
         if not parameterValue in results:
             results[parameterValue] = {}
+
+        expRun = 0
 
         # Read the contents of the file
         with open(arg, 'r') as f:
@@ -81,17 +91,17 @@ def main():
                         if not algo in algorithms:
                             algorithms.append(algo)
 
-                        if algo in results[parameterValue]:
-                            results[parameterValue][algo][0] += int(cells[1])
-                            results[parameterValue][algo][1] += 1
+                        # Experiment run deterimens if we must overwrite an older experiment
+                        if algo in results[parameterValue] and expRun in results[parameterValue][algo]:
+                            results[parameterValue][algo][expRun][0] += int(cells[1])
+                            results[parameterValue][algo][expRun][1] += 1
                         else:
-                            results[parameterValue][algo] = [int(cells[1]), 1, resultCount]
+                            results[parameterValue][algo] = {expRun : [int(cells[1]), 1, resultCount]}
                     except:
+                        expRun += 1
                         continue
-                results[parameterValue][algo][0] /= results[parameterValue][algo][1]
             except:
                 continue
-
 
 
     # Print header
@@ -108,14 +118,16 @@ def main():
 #        print(parameter)
 #        print(res)
         try:
-            resultCount = res[algorithms[0]][2]
+            val = next(iter(res[algorithms[0]].values()))
+            resultCount = val[2]
         except:
             printErrorAndExit("Algorithm %s not found in results." % algorithms[0])
 
         for a in algorithms:
             if a in res:
-                print("%d\t" % int(float(res[a][0]) / res[a][1]), end='')
-                if resultCount != res[a][2]:
+                val = next(iter(res[a].values()))
+                print("%d\t" % int(float(val[0]) / val[1]), end='')
+                if resultCount != val[2]:
                     printErrorAndExit("Different result counts for the same parameter-value found!")
             else:
                 print("nan\t", end='')
