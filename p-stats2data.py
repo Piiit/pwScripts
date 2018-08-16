@@ -81,12 +81,12 @@ def main():
                         algo = os.path.basename(cells[0])
 
                         # We added timesplit to the results recently, hence result counts are at pos 7 now
-                        # Before that, they were at pos 6 (since pos 7 is a filename/path we can simply check casting
+                        # Before that, they were at pos 7 (since pos 8 is a filename/path we can simply check casting
                         # errors)
                         try:
-                            resultCount = int(cells[7])
+                            resultCount = int(float(cells[8]))
                         except:
-                            resultCount = int(cells[6])
+                            resultCount = int(float(cells[7]))
 
                         if not algo in algorithms:
                             algorithms.append(algo)
@@ -115,8 +115,8 @@ def main():
     for parameter in sorted(parameters, key=natural_sort_key):
         print(parameter + "\t", end='')
         res = results[parameter]
-#        print(parameter)
-#        print(res)
+        # print(parameter)
+        # print(res)
         try:
             val = next(iter(res[algorithms[0]].values()))
             resultCount = val[2]
