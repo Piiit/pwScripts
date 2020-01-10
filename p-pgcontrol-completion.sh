@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Bash completion file for the pw_pgcontrol.sh script. This is just a very 
+# Bash completion file for the p-pgcontrol.sh script. This is just a very 
 # simple completion file, does not complete anything beyond the first commands.
 #
 # HOWTO: Copy this script to /etc/bash_completion.d/
 
-_have pw_pgcontrol.sh &&
+_have p-pgcontrol.sh &&
 _show() {
 	local cur opt prev
     COMPREPLY=()
@@ -25,5 +25,5 @@ _show() {
 	return 0
 	
 } &&
-complete -F _show pw_pgcontrol.sh
+complete -F _show p-pgcontrol.sh
 

@@ -136,7 +136,7 @@ function callPgCtl {
 
 
 # callPsql
-#     Call the PostgreSQL client program psql for the server on localhost with a
+#   Call the PostgreSQL client program psql for the server on localhost with a
 #   given port, data cluster directory, and file that should be executed.
 #
 #   $1 - server port
@@ -321,20 +321,20 @@ while true; do
             # git diff --no-prefix origin/master -- src/ ':!src/test/*' > $2
 
             # Generate the patch against the same branch!
-            git diff origin/master -- src/ > $2
+            git diff master -- src/ > $2
 
             exit $?
         ;;
         --patchcreatetestonly)
             checkArguments $# 2 "$1: No <patch-file> given."
 
-            git diff --no-prefix origin/master -- src/test/ > $2
+            git diff --no-prefix master -- src/test/ > $2
 
             exit $?
         ;;
         --patch)
             checkArguments $# 2 "$1: Provide a patch-file to apply a patch to a postgres directory."
-            patch -p0 < $2
+            patch -p1 < $2
             exit $?
         ;;
         -x | --restartclean | -m | --make )
